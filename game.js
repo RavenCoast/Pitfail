@@ -25,8 +25,8 @@ const gameState = {
     h: 44,
     vx: 0,
     vy: 0,
-    speed: 3.8,
-    jumpPower: 12.5,
+    speed: 3.4,
+    jumpPower: 11.8,
     onGround: false,
     climbing: false,
     facing: 1,
@@ -39,7 +39,7 @@ const screens = [
     spawn: { x: 90, y: 420 },
     groundY: 470,
     foliage: true,
-    obstacles: [{ type: "quicksand", x: 330, y: 450, w: 96, h: 20 }],
+    obstacles: [{ type: "quicksand", x: 320, y: 450, w: 180, h: 20 }],
     animals: [{ type: "snake", x: 660, y: 438, w: 52, h: 24 }],
     ladder: { x: 760, y: 320, w: 42, h: 150 },
     underground: {
@@ -47,7 +47,7 @@ const screens = [
       spawn: { x: 760, y: 420 },
       groundY: 470,
       obstacles: [
-        { type: "rockPit", x: 220, y: 452, w: 90, h: 18 },
+        { type: "rockPit", x: 180, y: 452, w: 140, h: 18 },
         { type: "stalagmite", x: 520, y: 430, w: 60, h: 40 },
       ],
       platforms: [
@@ -77,7 +77,7 @@ const screens = [
     groundY: 470,
     foliage: true,
     obstacles: [
-      { type: "gap", x: 280, y: 470, w: 90, h: 70 },
+      { type: "gap", x: 260, y: 470, w: 120, h: 70 },
       { type: "fallenTree", x: 540, y: 430, w: 170, h: 35 },
     ],
     platforms: [{ x: 560, y: 392, w: 130, h: 18 }],
@@ -87,7 +87,7 @@ const screens = [
       name: "Rock Maze",
       spawn: { x: 420, y: 420 },
       groundY: 470,
-      obstacles: [{ type: "spikes", x: 630, y: 445, w: 82, h: 25 }],
+      obstacles: [{ type: "spikes", x: 610, y: 445, w: 140, h: 25 }],
       platforms: [
         { x: 130, y: 388, w: 120, h: 18 },
         { x: 300, y: 352, w: 120, h: 18 },
