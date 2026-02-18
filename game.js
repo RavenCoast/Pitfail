@@ -25,8 +25,8 @@ const gameState = {
     h: 44,
     vx: 0,
     vy: 0,
-    speed: 3.4,
-    jumpPower: 11.8,
+    speed: 4.1,
+    jumpPower: 13.5,
     onGround: false,
     climbing: false,
     facing: 1,
@@ -39,7 +39,7 @@ const screens = [
     spawn: { x: 90, y: 420 },
     groundY: 470,
     foliage: true,
-    obstacles: [{ type: "quicksand", x: 320, y: 450, w: 180, h: 20 }],
+    obstacles: [{ type: "quicksand", x: 336, y: 450, w: 72, h: 20 }],
     animals: [{ type: "snake", x: 660, y: 438, w: 52, h: 24 }],
     ladder: { x: 760, y: 320, w: 42, h: 150 },
     underground: {
@@ -47,7 +47,7 @@ const screens = [
       spawn: { x: 760, y: 420 },
       groundY: 470,
       obstacles: [
-        { type: "rockPit", x: 180, y: 452, w: 140, h: 18 },
+        { type: "rockPit", x: 228, y: 452, w: 72, h: 18 },
         { type: "stalagmite", x: 520, y: 430, w: 60, h: 40 },
       ],
       platforms: [
@@ -65,8 +65,8 @@ const screens = [
     obstacles: [{ type: "river", x: 180, y: 420, w: 560, h: 84 }],
     movingLogs: [
       { x: 230, y: 440, w: 140, h: 20, speed: 1.15 },
-      { x: 460, y: 450, w: 130, h: 20, speed: -1.4 },
-      { x: 650, y: 432, w: 120, h: 20, speed: 1.8 },
+      { x: 430, y: 450, w: 150, h: 20, speed: -1.15 },
+      { x: 620, y: 432, w: 150, h: 20, speed: 1.35 },
     ],
     animals: [{ type: "frog", x: 770, y: 444, w: 28, h: 22 }],
     ladder: null,
@@ -77,7 +77,7 @@ const screens = [
     groundY: 470,
     foliage: true,
     obstacles: [
-      { type: "gap", x: 260, y: 470, w: 120, h: 70 },
+      { type: "gap", x: 292, y: 470, w: 72, h: 70 },
       { type: "fallenTree", x: 540, y: 430, w: 170, h: 35 },
     ],
     platforms: [{ x: 560, y: 392, w: 130, h: 18 }],
@@ -87,7 +87,7 @@ const screens = [
       name: "Rock Maze",
       spawn: { x: 420, y: 420 },
       groundY: 470,
-      obstacles: [{ type: "spikes", x: 610, y: 445, w: 140, h: 25 }],
+      obstacles: [{ type: "spikes", x: 640, y: 445, w: 64, h: 25 }],
       platforms: [
         { x: 130, y: 388, w: 120, h: 18 },
         { x: 300, y: 352, w: 120, h: 18 },
