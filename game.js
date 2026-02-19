@@ -299,7 +299,12 @@ function resolvePlatforms(screen) {
   if (p.y > WORLD.height + 40) loseLife();
 
   for (const obs of screen.obstacles || []) {
-    if (["quicksand", "river", "gap", "rockPit", "spikes", "stalagmite"].includes(obs.type) && intersects(p, obs)) {
+    let fatalZone = obs;
+    if (obs.type === "river") {
+      // Keep the river surface non-fatal so players can safely land on logs.
+      fatalZone = { x: obs.x, y: obs.y + 26, w: obs.w, h: Math.max(0, obs.h - 26) };
+    }
+    if (["quicksand", "river", "gap", "rockPit", "spikes", "stalagmite"].includes(obs.type) && intersects(p, fatalZone)) {
       loseLife();
       break;
     }
