@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Pitfail</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="game-shell">
+    <header class="hud">
+      <h1 class="logo">PITFAIL</h1>
+      <div class="stats">
+        <span id="score">Score: 0</span>
+        <span id="lives">Lives: 99</span>
+        <span id="screen-name">Screen: Jungle Trail</span>
+      </div>
+    </header>
+    <canvas id="game" width="960" height="540" aria-label="Pitfail game canvas"></canvas>
+  </main>
+
+  <section id="splash" class="splash active" aria-modal="true" role="dialog">
+    <div class="splash-card">
+      <div class="logo-art" aria-hidden="true">🌴🗿🌴</div>
+      <h2>PITFAIL</h2>
+      <p>Jump, climb, and survive the jungle!</p>
+      <p>Controls: ← → move, ↑/↓ climb ladders, SPACE jump.</p>
+      <button id="start-button">Start Adventure</button>
+    </div>
+  </section>
+
+  <script src="game.js"></script>
+</body>
+</html>
