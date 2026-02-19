@@ -18,6 +18,7 @@ const gameState = {
   started: false,
   musicStarted: false,
   deathMessage: "",
+  deathMessageUntil: 0,
   player: {
     x: 95,
     y: 420,
@@ -42,6 +43,7 @@ const screens = [
     groundY: 470,
     foliage: true,
     obstacles: [{ type: "quicksand", x: 336, y: 450, w: 72, h: 20 }],
+    treasure: { type: "silver", x: 620, y: 434, w: 26, h: 22, value: 50, collected: false },
     animals: [{ type: "snake", x: 640, y: 438, w: 52, h: 24, minX: 620, maxX: 760, speed: 1.1, dir: 1, phase: 0 }],
     ladder: { x: 760, y: 320, w: 42, h: 150 },
     underground: {
@@ -51,6 +53,7 @@ const screens = [
       obstacles: [
         { type: "rockPit", x: 228, y: 452, w: 72, h: 18 },
         { type: "stalagmite", x: 520, y: 430, w: 60, h: 40 },
+        { type: "spikes", x: 320, y: 445, w: 70, h: 25 },
       ],
       platforms: [
         { x: 120, y: 372, w: 120, h: 18 },
@@ -58,6 +61,7 @@ const screens = [
       ],
       ladder: { x: 760, y: 320, w: 42, h: 150 },
       animals: [{ type: "bat", x: 430, y: 250, w: 44, h: 20, minX: 380, maxX: 610, speed: 1.5, dir: 1, phase: 0 }],
+      treasure: { type: "gold", x: 370, y: 304, w: 28, h: 24, value: 100, collected: false },
     },
   },
   {
@@ -72,7 +76,25 @@ const screens = [
       { x: 620, y: 432, w: 150, h: 20, speed: 1.35 },
     ],
     animals: [{ type: "frog", x: 770, y: 444, w: 28, h: 22, minX: 760, maxX: 860, speed: 0.8, dir: 1, phase: 0 }],
-    ladder: null,
+    ladder: { x: 70, y: 320, w: 42, h: 150 },
+    underground: {
+      name: "Flooded Grotto",
+      spawn: { x: 88, y: 420 },
+      groundY: 470,
+      obstacles: [
+        { type: "spikes", x: 200, y: 445, w: 85, h: 25 },
+        { type: "rockPit", x: 420, y: 452, w: 90, h: 18 },
+      ],
+      platforms: [
+        { x: 90, y: 360, w: 96, h: 18 },
+        { x: 320, y: 330, w: 110, h: 18 },
+        { x: 560, y: 300, w: 140, h: 18 },
+      ],
+      ladder: { x: 70, y: 320, w: 42, h: 150 },
+      animals: [{ type: "lizard", x: 640, y: 440, w: 56, h: 20, minX: 560, maxX: 820, speed: 1.4, dir: 1, phase: 0 }],
+      treasure: { type: "gold", x: 594, y: 282, w: 28, h: 24, value: 100, collected: false },
+    },
+    treasure: { type: "gold", x: 770, y: 446, w: 28, h: 24, value: 100, collected: false },
   },
   {
     name: "Fallen Timber",
@@ -86,11 +108,16 @@ const screens = [
     platforms: [{ x: 560, y: 392, w: 130, h: 18 }],
     animals: [{ type: "panther", x: 740, y: 432, w: 70, h: 30, minX: 700, maxX: 850, speed: 1.4, dir: 1, phase: 0 }],
     ladder: { x: 420, y: 320, w: 42, h: 150 },
+    treasure: null,
     underground: {
       name: "Rock Maze",
       spawn: { x: 420, y: 420 },
       groundY: 470,
-      obstacles: [{ type: "spikes", x: 640, y: 445, w: 64, h: 25 }],
+      obstacles: [
+        { type: "spikes", x: 250, y: 445, w: 100, h: 25 },
+        { type: "spikes", x: 640, y: 445, w: 72, h: 25 },
+        { type: "rockPit", x: 470, y: 452, w: 80, h: 18 },
+      ],
       platforms: [
         { x: 130, y: 388, w: 120, h: 18 },
         { x: 300, y: 352, w: 120, h: 18 },
@@ -98,6 +125,7 @@ const screens = [
       ],
       ladder: { x: 420, y: 320, w: 42, h: 150 },
       animals: [{ type: "lizard", x: 560, y: 442, w: 54, h: 18, minX: 500, maxX: 700, speed: 1.0, dir: -1, phase: 0 }],
+      treasure: { type: "silver", x: 142, y: 370, w: 26, h: 22, value: 50, collected: false },
     },
   },
 ];
@@ -162,20 +190,32 @@ class TinySynth {
   }
 
   playJump() {
-    this.beep(660, 0.05, "square", 0.11);
-    this.beep(820, 0.08, "triangle", 0.08);
+    this.beep(560, 0.06, "square", 0.12);
+    this.beep(720, 0.08, "triangle", 0.09);
+    this.beep(920, 0.09, "square", 0.06);
   }
 
   playLand() {
-    this.beep(180, 0.06, "square", 0.09);
-    this.beep(140, 0.08, "triangle", 0.07);
+    this.noise(0.05, 0.04);
+    this.beep(180, 0.08, "square", 0.11);
+    this.beep(120, 0.1, "triangle", 0.08);
   }
 
   playDeath() {
     this.noise(0.2, 0.12);
-    this.beep(220, 0.12, "sawtooth", 0.12);
-    this.beep(150, 0.16, "square", 0.1);
-    this.beep(92, 0.24, "triangle", 0.09);
+    this.beep(240, 0.14, "sawtooth", 0.12);
+    this.beep(170, 0.2, "square", 0.1);
+    this.beep(104, 0.26, "triangle", 0.1);
+  }
+
+  playSadPhraseThenResume(themeKey) {
+    this.ensure();
+    const notes = [262, 220, 196, 165];
+    notes.forEach((n, i) => {
+      this.beep(n, 0.17 + i * 0.005, "triangle", 0.07);
+      this.beep(n / 2, 0.2, "square", 0.05);
+    });
+    setTimeout(() => this.setTheme(themeKey), 900);
   }
 
   startMusic(themeKey) {
@@ -188,8 +228,8 @@ class TinySynth {
     if (this.currentTheme === themeKey && this.musicTimer) return;
     this.currentTheme = themeKey;
     const theme = this.themes[themeKey] || this.themes[0];
-
     const now = this.ctx.currentTime;
+
     this.master.gain.cancelScheduledValues(now);
     this.master.gain.setValueAtTime(this.master.gain.value, now);
     this.master.gain.linearRampToValueAtTime(0.07, now + 0.12);
@@ -251,8 +291,10 @@ function resetPlayerOnScreen() {
 function loseLife(reason) {
   gameState.lives = Math.max(0, gameState.lives - 1);
   gameState.deathMessage = `You were defeated by ${reason}.`;
+  gameState.deathMessageUntil = performance.now() + 5000;
   gameState.player.justDied = true;
   synth.playDeath();
+  synth.playSadPhraseThenResume(themeKeyForCurrentScreen());
   resetPlayerOnScreen();
   updateHud();
 }
@@ -273,7 +315,10 @@ function moveToScreen(direction) {
   if (direction > 0) gameState.screenIndex = (gameState.screenIndex + 1) % screens.length;
   else gameState.screenIndex = (gameState.screenIndex - 1 + screens.length) % screens.length;
   gameState.score += 100;
-  gameState.underground = false;
+
+  const targetBase = screens[gameState.screenIndex];
+  if (gameState.underground && !targetBase.underground) gameState.underground = false;
+
   resetPlayerOnScreen();
   synth.beep(640, 0.1, "square", 0.11);
   synth.beep(820, 0.08, "triangle", 0.08);
@@ -397,7 +442,7 @@ function resolvePlatforms(screen) {
     let fatalZone = obs;
     if (obs.type === "river") {
       // Deeper-only fatal region so all log landings are safely possible.
-      fatalZone = { x: obs.x, y: obs.y + 36, w: obs.w, h: Math.max(0, obs.h - 36) };
+      fatalZone = { x: obs.x, y: obs.y + 46, w: obs.w, h: Math.max(0, obs.h - 46) };
     }
     if (["quicksand", "river", "gap", "rockPit", "spikes", "stalagmite"].includes(obs.type) && intersects(p, fatalZone)) {
       loseLife(obstacleLabel(obs.type));
@@ -417,6 +462,28 @@ function resolvePlatforms(screen) {
   p.x = Math.max(-20, Math.min(WORLD.width + 20, p.x));
 }
 
+
+function drawTreasure(treasure) {
+  if (!treasure || treasure.collected) return;
+  const color = treasure.type === "gold" ? "#f7cc33" : "#c4d4ef";
+  const shadow = treasure.type === "gold" ? "#c19418" : "#8ea0bf";
+  drawPixelRect(treasure.x, treasure.y + 6, treasure.w, treasure.h - 6, color);
+  drawPixelRect(treasure.x + 2, treasure.y + 2, treasure.w - 4, 6, shadow);
+  drawPixelRect(treasure.x + 4, treasure.y + 10, treasure.w - 8, 3, shadow);
+}
+
+function collectTreasure(screen) {
+  const t = screen.treasure;
+  if (!t || t.collected) return;
+  if (intersects(gameState.player, t)) {
+    t.collected = true;
+    gameState.score += t.value;
+    synth.beep(980, 0.08, "square", 0.1);
+    synth.beep(1240, 0.1, "triangle", 0.08);
+    updateHud();
+  }
+}
+
 function update() {
   const p = gameState.player;
   const screen = currentScreen();
@@ -434,9 +501,6 @@ function update() {
     p.facing = 1;
   }
 
-  if (gameState.deathMessage && (Math.abs(p.vx) > 0 || p.climbing || keys.ArrowLeft || keys.ArrowRight || keys.ArrowUp || keys.ArrowDown)) {
-    gameState.deathMessage = "";
-  }
 
   handleLadder(screen);
 
@@ -450,6 +514,9 @@ function update() {
   p.animTick += Math.abs(p.vx) > 0 ? 0.35 : 0.08;
 
   resolvePlatforms(screen);
+  collectTreasure(screen);
+
+  if (gameState.deathMessage && performance.now() > gameState.deathMessageUntil) gameState.deathMessage = "";
 }
 
 function drawPixelRect(x, y, w, h, color) {
@@ -466,11 +533,11 @@ function drawBackground(screen) {
     drawPixelRect(0, 280, WORLD.width, WORLD.height - 280, "#2f9853");
 
     if (screen.foliage) {
-      for (let i = 0; i < 9; i++) {
-        const x = 22 + i * 110;
-        drawPixelRect(x + 16, 185, 14, 95, "#744b27");
-        drawPixelRect(x, 160, 46, 36, "#21ca63");
-        drawPixelRect(x - 8, 180, 62, 28, "#17a952");
+      for (let i = 0; i < 7; i++) {
+        const x = 10 + i * 145;
+        drawPixelRect(x + 28, 150, 20, 130, "#744b27");
+        drawPixelRect(x, 102, 78, 62, "#21ca63");
+        drawPixelRect(x - 16, 132, 108, 52, "#17a952");
       }
     }
   }
@@ -531,23 +598,31 @@ function drawObstacles(screen) {
   }
 
   for (const animal of screen.animals || []) {
-    const mouthOpen = Math.sin(animal.phase || 0) > 0;
+    const phase = animal.phase || 0;
+    const mouthOpen = Math.sin(phase) > 0;
     const bodyColor = animal.type === "panther" ? "#2d2d3b" : animal.type === "snake" ? "#46dd72" : animal.type === "bat" ? "#6f6fa8" : animal.type === "lizard" ? "#3fcf75" : "#9bf37f";
+    const faceLeft = animal.dir === -1;
     drawPixelRect(animal.x, animal.y, animal.w, animal.h, bodyColor);
 
-    const headX = animal.dir === -1 ? animal.x : animal.x + animal.w - 10;
-    drawPixelRect(headX, animal.y + 4, 8, 8, "#fff");
-    drawPixelRect(headX + (animal.dir === -1 ? 1 : 3), animal.y + 6, 2, 2, "#000");
+    const headW = 12;
+    const headX = faceLeft ? animal.x : animal.x + animal.w - headW;
+    drawPixelRect(headX, animal.y + 3, headW, 10, "#f5f5f5");
+    drawPixelRect(headX + (faceLeft ? 2 : headW - 4), animal.y + 6, 2, 2, "#000");
 
-    if (mouthOpen) {
-      const mx = animal.dir === -1 ? animal.x - 2 : animal.x + animal.w - 2;
-      drawPixelRect(mx, animal.y + animal.h - 6, 4, 4, "#ff9aaa");
+    const jawHeight = mouthOpen ? 8 : 3;
+    const jawX = faceLeft ? headX - 8 : headX + headW;
+    drawPixelRect(jawX, animal.y + animal.h - jawHeight - 2, 10, jawHeight, "#ff9aaa");
+
+    if (animal.type !== "snake" && animal.type !== "bat") {
+      const legSwing = Math.round(Math.sin(phase) * 2);
+      drawPixelRect(animal.x + 8, animal.y + animal.h - 2, 5, 10 + legSwing, "#1f2a5b");
+      drawPixelRect(animal.x + animal.w - 13, animal.y + animal.h - 2, 5, 10 - legSwing, "#1f2a5b");
     }
 
     if (animal.type === "bat") {
-      const wingY = animal.y - (mouthOpen ? 5 : 2);
-      drawPixelRect(animal.x - 8, wingY, 8, 8, "#5b5b92");
-      drawPixelRect(animal.x + animal.w, wingY, 8, 8, "#5b5b92");
+      const wingY = animal.y - (mouthOpen ? 7 : 3);
+      drawPixelRect(animal.x - 12, wingY, 12, 10, "#5b5b92");
+      drawPixelRect(animal.x + animal.w, wingY, 12, 10, "#5b5b92");
     }
   }
 }
@@ -601,6 +676,7 @@ function draw() {
   const screen = currentScreen();
   drawBackground(screen);
   drawObstacles(screen);
+  drawTreasure(screen.treasure);
   drawPlayer();
   drawDeathMessage();
 
