@@ -1,5 +1,6 @@
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
+ctx.imageSmoothingEnabled = false;
 
 const scoreEl = document.getElementById("score");
 const livesEl = document.getElementById("lives");
@@ -627,40 +628,187 @@ function drawObstacles(screen) {
   }
 }
 
+const PLAYER_SPRITE_PALETTE = {
+  P: "#f04ca8", // cap/hair accent
+  S: "#f6c26a", // skin
+  G: "#20b54c", // body
+  D: "#0d7d2a", // shadow green
+  B: "#2648a8", // boot
+  K: "#0f0f16", // outline
+};
+
+const PLAYER_SPRITE_FRAMES = {
+  idle: [
+    "................",
+    "....PPPP........",
+    "...PPSSP........",
+    "....PSSK........",
+    "....GGG.........",
+    "...GGDGG........",
+    "...GGDGG........",
+    "..GGGGGG........",
+    "..GGGGGD........",
+    "..GGDGGD........",
+    "...G..G.........",
+    "..GB..GB........",
+    "..GB..GB........",
+    "..BK..BK........",
+    "................",
+    "................",
+  ],
+  jump: [
+    "................",
+    "....PPPP........",
+    "...PPSSP........",
+    "....PSSK........",
+    "....GGG.........",
+    "...GGDGG........",
+    "...GGDGG........",
+    "..GGGGGG........",
+    "..GGGGGD........",
+    "...GGGG.........",
+    "..GB..G.........",
+    ".GB....GB.......",
+    ".BK....BK.......",
+    "................",
+    "................",
+    "................",
+  ],
+  walk: [
+    [
+      "................",
+      "....PPPP........",
+      "...PPSSP........",
+      "....PSSK........",
+      "....GGG.........",
+      "...GGDGG........",
+      "...GGDGG........",
+      "..GGGGGG........",
+      "..GGGGGD........",
+      "..GGDGGD........",
+      "...G..G.........",
+      "..GB..G.........",
+      "..GB...GB.......",
+      ".BK.....BK......",
+      "................",
+      "................",
+    ],
+    [
+      "................",
+      "....PPPP........",
+      "...PPSSP........",
+      "....PSSK........",
+      "....GGG.........",
+      "...GGDGG........",
+      "...GGDGG........",
+      "..GGGGGG........",
+      "..GGGGGD........",
+      "..GGDGGD........",
+      "...G..G.........",
+      "..G...GB........",
+      ".GB..GB.........",
+      ".BK..BK.........",
+      "................",
+      "................",
+    ],
+    [
+      "................",
+      "....PPPP........",
+      "...PPSSP........",
+      "....PSSK........",
+      "....GGG.........",
+      "...GGDGG........",
+      "...GGDGG........",
+      "..GGGGGG........",
+      "..GGGGGD........",
+      "..GGDGGD........",
+      "...G..G.........",
+      "...GB..G........",
+      "..GB...GB.......",
+      "..BK....BK......",
+      "................",
+      "................",
+    ],
+    [
+      "................",
+      "....PPPP........",
+      "...PPSSP........",
+      "....PSSK........",
+      "....GGG.........",
+      "...GGDGG........",
+      "...GGDGG........",
+      "..GGGGGG........",
+      "..GGGGGD........",
+      "..GGDGGD........",
+      "...G..G.........",
+      "..GB...G........",
+      "..GB..GB........",
+      "...BK..BK.......",
+      "................",
+      "................",
+    ],
+  ],
+};
+
+function renderSpriteFrame(rows) {
+  const h = rows.length;
+  const w = rows[0].length;
+  const bmp = document.createElement("canvas");
+  bmp.width = w;
+  bmp.height = h;
+  const bctx = bmp.getContext("2d");
+  bctx.imageSmoothingEnabled = false;
+
+  for (let y = 0; y < h; y++) {
+    const row = rows[y];
+    for (let x = 0; x < w; x++) {
+      const key = row[x];
+      if (key === ".") continue;
+      const color = PLAYER_SPRITE_PALETTE[key];
+      if (!color) continue;
+      bctx.fillStyle = color;
+      bctx.fillRect(x, y, 1, 1);
+    }
+  }
+  return bmp;
+}
+
+const PLAYER_BITMAPS = {
+  idle: renderSpriteFrame(PLAYER_SPRITE_FRAMES.idle),
+  jump: renderSpriteFrame(PLAYER_SPRITE_FRAMES.jump),
+  walk: PLAYER_SPRITE_FRAMES.walk.map(renderSpriteFrame),
+};
+
 function drawPlayer() {
   const p = gameState.player;
-  const facing = p.facing;
-  const runPhase = Math.sin(p.animTick);
   const running = Math.abs(p.vx) > 0.1 && p.onGround;
   const jumpPose = !p.onGround && !p.climbing;
 
-  // torso/head
-  drawPixelRect(p.x + 7, p.y, 14, 12, "#4d321d");
-  drawPixelRect(p.x, p.y + 10, p.w, p.h - 10, "#f4cf9e");
-  drawPixelRect(p.x + 5, p.y + 18, 18, 12, "#f25bb6");
-
-  // eye + direction
-  drawPixelRect(p.x + (facing > 0 ? 17 : 6), p.y + 3, 4, 4, "#fff");
-
-  // arms
-  const armSwing = jumpPose ? 0 : Math.round(runPhase * 4);
-  drawPixelRect(p.x + (facing > 0 ? 22 : 1), p.y + 18 + armSwing, 4, 12, "#f4cf9e");
-  drawPixelRect(p.x + (facing > 0 ? 2 : 22), p.y + 18 - armSwing, 4, 12, "#f4cf9e");
-
-  // legs
-  let legOffsetA = 0;
-  let legOffsetB = 0;
+  let frame = PLAYER_BITMAPS.idle;
   if (jumpPose) {
-    legOffsetA = -4;
-    legOffsetB = -2;
+    frame = PLAYER_BITMAPS.jump;
   } else if (running) {
-    legOffsetA = Math.round(runPhase * 5);
-    legOffsetB = -Math.round(runPhase * 5);
+    const walkIndex = Math.floor(p.animTick) % PLAYER_BITMAPS.walk.length;
+    frame = PLAYER_BITMAPS.walk[walkIndex];
   }
-  drawPixelRect(p.x + 6, p.y + 30 + legOffsetA, 6, 14, "#1f2a5b");
-  drawPixelRect(p.x + 16, p.y + 30 + legOffsetB, 6, 14, "#1f2a5b");
-}
 
+  const scale = 2;
+  const spriteW = frame.width * scale;
+  const spriteH = frame.height * scale;
+  const drawX = Math.round(p.x + (p.w - spriteW) / 2);
+  const drawY = Math.round(p.y + p.h - spriteH);
+
+  ctx.save();
+  ctx.imageSmoothingEnabled = false;
+  if (p.facing < 0) {
+    ctx.translate(drawX + spriteW, drawY);
+    ctx.scale(-1, 1);
+    ctx.drawImage(frame, 0, 0, spriteW, spriteH);
+  } else {
+    ctx.drawImage(frame, drawX, drawY, spriteW, spriteH);
+  }
+  ctx.restore();
+}
 function drawDeathMessage() {
   if (!gameState.deathMessage) return;
   const text = gameState.deathMessage;

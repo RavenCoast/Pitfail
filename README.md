@@ -56,3 +56,29 @@ If your remote is configured, you can publish with:
 ```bash
 git push origin <your-branch>
 ```
+
+## GitHub Desktop merge workflow (recommended for each new build)
+
+When you receive a new build branch/PR, use this exact order to reduce conflicts:
+
+1. Open **GitHub Desktop** and select your `Pitfail` repository.
+2. Click **Fetch origin**.
+3. Switch to your working build branch (for example `work`).
+4. Click **Branch → Update from main** (or merge `main` into your branch).
+5. If prompted about conflicts, use the conflict editor and choose the incoming build changes where appropriate, then mark files resolved and **Commit merge**.
+6. Click **Push origin** for your branch.
+7. Open the PR on GitHub and use **Squash and merge** into `main`.
+8. Back in GitHub Desktop, switch to `main` and click **Pull origin** so your local `main` matches GitHub.
+
+This flow is the one to repeat each time so you do not need to resolve the same conflicts repeatedly.
+
+## GitHub Pages (play without local server)
+
+After your changes are merged into `main`, play Pitfail at:
+
+```text
+https://ravencoast.github.io/Pitfail/
+```
+
+If the latest build is not visible yet, wait 1-3 minutes and refresh (GitHub Pages redeploy can take a moment).
+
