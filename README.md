@@ -5,6 +5,7 @@ Pitfail is a retro-inspired 2D browser platformer set in a bright 8-bit jungle w
 ## Features
 
 - Splash screen and PITFAIL logo on launch
+- Optional generated PNG/WAV assets (kept out of git) with built-in fallback rendering/audio
 - Arrow key movement and `Space` jump controls
 - Ladder traversal to underground screens
 - Fatal obstacles (quicksand, river hazards, pits, spikes, animals)
@@ -17,6 +18,7 @@ Pitfail is a retro-inspired 2D browser platformer set in a bright 8-bit jungle w
 From the repository root:
 
 ```bash
+python3 tools/generate_assets.py
 python3 -m http.server 4173
 ```
 
@@ -101,3 +103,27 @@ If you ever hit a merge mistake, ask for a **depot refresh build** and I can pub
 
 Each build now shows a **build number + UTC timestamp** on the splash screen, and the same information is repeated in each build report.
 
+
+
+## Asset pipeline (Option A: text-only in git)
+
+This repository now keeps the asset pipeline in code, not in committed binaries.
+
+1. Run one command before local play:
+
+   ```bash
+   python3 tools/generate_assets.py
+   ```
+
+2. The command writes:
+   - `assets/sprites/player_filmstrip.png`
+   - `assets/audio/jump.wav`
+   - `assets/audio/land.wav`
+   - `assets/audio/death.wav`
+   - `assets/audio/treasure.wav`
+   - `assets/audio/music_surface.wav`
+   - `assets/audio/music_cave.wav`
+
+3. These files are ignored by git, so PRs stay text-only.
+
+If you skip generation, the game still runs using fallback visuals/audio synthesis in `game.js`.
