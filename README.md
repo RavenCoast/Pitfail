@@ -57,6 +57,14 @@ If your remote is configured, you can publish with:
 git push origin <your-branch>
 ```
 
+## Codex PR steps (do this before GitHub Desktop)
+
+1. In Codex, wait for the build report to finish.
+2. Click **Update Branch** and wait.
+3. Click **Create PR** and wait.
+4. Click **View PR** to open the GitHub PR page.
+5. If GitHub shows **Update branch**, click it and wait for completion.
+
 ## GitHub Desktop merge workflow (recommended for each new build)
 
 When you receive a new build branch/PR, use this exact order to reduce conflicts:
@@ -65,7 +73,10 @@ When you receive a new build branch/PR, use this exact order to reduce conflicts
 2. Click **Fetch origin**.
 3. Switch to your working build branch (for example `work`).
 4. Click **Branch → Update from main** (or merge `main` into your branch).
-5. If prompted about conflicts, use the conflict editor and choose the incoming build changes where appropriate, then mark files resolved and **Commit merge**.
+5. If prompted about conflict choices between branch names:
+   - Choose the option that starts with **`origin/`**.
+   - Example: choose `origin/codex/create-2d-platformer-game-pitfail` over `codex/create-2d-platformer-game-pitfail`.
+   - Then click **Mark as resolved** and **Commit merge**.
 6. Click **Push origin** for your branch.
 7. Open the PR on GitHub and use **Squash and merge** into `main`.
 8. Back in GitHub Desktop, switch to `main` and click **Pull origin** so your local `main` matches GitHub.
@@ -85,4 +96,8 @@ If the latest build is not visible yet, wait 1-3 minutes and refresh (GitHub Pag
 ## Build refresh note
 
 If you ever hit a merge mistake, ask for a **depot refresh build** and I can publish a fresh commit/PR so you have a clean new merge target.
+
+## Build identification
+
+Each build now shows a **build number + UTC timestamp** on the splash screen, and the same information is repeated in each build report.
 
