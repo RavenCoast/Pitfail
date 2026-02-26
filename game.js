@@ -14,6 +14,70 @@ const BUILD_INFO = {
   timestampUtc: "2026-02-26T23:10:00Z",
 };
 
+
+class FileAudioManager {
+  constructor() {
+    this.enabled = false;
+    this.currentTheme = null;
+    this.sfx = {
+      jump: new Audio("assets/audio/jump.wav"),
+      land: new Audio("assets/audio/land.wav"),
+      death: new Audio("assets/audio/death.wav"),
+      treasure: new Audio("assets/audio/treasure.wav"),
+    };
+    this.music = {
+      surface: new Audio("assets/audio/music_surface.wav"),
+      cave: new Audio("assets/audio/music_cave.wav"),
+    };
+    Object.values(this.sfx).forEach((a) => { a.preload = "auto"; a.volume = 0.55; });
+    Object.values(this.music).forEach((a) => { a.preload = "auto"; a.loop = true; a.volume = 0.38; });
+  }
+
+  async unlock() {
+    if (this.enabled) return true;
+    try {
+      const first = this.music.surface;
+      first.currentTime = 0;
+      await first.play();
+      first.pause();
+      first.currentTime = 0;
+      this.enabled = true;
+      return true;
+    } catch (_) {
+      this.enabled = false;
+      return false;
+    }
+  }
+
+  playSfx(name) {
+    if (!this.enabled || !this.sfx[name]) return false;
+    const a = this.sfx[name];
+    a.currentTime = 0;
+    a.play().catch(() => {});
+    return true;
+  }
+
+  setTheme(themeKey) {
+    if (!this.enabled) return false;
+    const target = themeKey === "cave" ? "cave" : "surface";
+    if (this.currentTheme === target) return true;
+    this.currentTheme = target;
+
+    for (const [name, track] of Object.entries(this.music)) {
+      if (name === target) {
+        track.currentTime = 0;
+        track.play().catch(() => {});
+      } else {
+        track.pause();
+        track.currentTime = 0;
+      }
+    }
+    return true;
+  }
+}
+
+const fileAudio = new FileAudioManager();
+
 const WORLD = { width: canvas.width, height: canvas.height, gravity: 0.62 };
 const keys = { ArrowLeft: false, ArrowRight: false, ArrowUp: false, ArrowDown: false, Space: false };
 
@@ -246,24 +310,28 @@ class TinySynth {
   }
 
   playJump() {
+    if (fileAudio.playSfx("jump")) return;
     this.beep(560, 0.06, "square", 0.12);
     this.beep(720, 0.08, "triangle", 0.09);
     this.beep(920, 0.09, "square", 0.06);
   }
 
   playLand() {
+    if (fileAudio.playSfx("land")) return;
     this.noise(0.05, 0.04);
     this.beep(180, 0.08, "square", 0.11);
     this.beep(120, 0.1, "triangle", 0.08);
   }
 
   playTreasureStinger(type = "gold") {
+    if (fileAudio.playSfx("treasure")) return;
     const bright = type === "gold" ? [880, 1175, 1480] : [740, 988, 1318];
     bright.forEach((f, i) => this.beep(f, 0.08 + i * 0.02, "square", 0.11 - i * 0.01));
     this.beep(bright[2] * 1.25, 0.18, "triangle", 0.09);
   }
 
   playDeath() {
+    if (fileAudio.playSfx("death")) return;
     this.noise(0.2, 0.12);
     this.beep(240, 0.14, "sawtooth", 0.12);
     this.beep(170, 0.2, "square", 0.1);
@@ -289,6 +357,7 @@ class TinySynth {
   }
 
   setTheme(themeKey) {
+    if (fileAudio.setTheme(themeKey)) return;
     this.ensure();
     if (this.currentTheme === themeKey && this.musicTimer && this.percussionTimer) return;
     this.currentTheme = themeKey;
@@ -872,155 +941,14 @@ function drawObstacles(screen) {
   }
 }
 
-const PLAYER_SPRITE_PALETTE = {
-  P: "#f04ca8", // cap/hair accent
-  S: "#f6c26a", // skin
-  G: "#20b54c", // body
-  D: "#0d7d2a", // shadow green
-  B: "#2648a8", // boot
-  K: "#0f0f16", // outline
-};
+const playerFilmstrip = new Image();
+playerFilmstrip.src = "assets/sprites/player_filmstrip.png";
 
-const PLAYER_SPRITE_FRAMES = {
-  idle: [
-    "................",
-    "....PPPP........",
-    "...PPSSP........",
-    "....PSSK........",
-    "....GGG.........",
-    "...GGDGG........",
-    "...GGDGG........",
-    "..GGGGGG........",
-    "..GGGGGD........",
-    "..GGDGGD........",
-    "...G..G.........",
-    "..GB..GB........",
-    "..GB..GB........",
-    "..BK..BK........",
-    "................",
-    "................",
-  ],
-  jump: [
-    "................",
-    "....PPPP........",
-    "...PPSSP........",
-    "....PSSK........",
-    "....GGG.........",
-    "...GGDGG........",
-    "...GGDGG........",
-    "..GGGGGG........",
-    "..GGGGGD........",
-    "...GGGG.........",
-    "..GB..G.........",
-    ".GB....GB.......",
-    ".BK....BK.......",
-    "................",
-    "................",
-    "................",
-  ],
-  walk: [
-    [
-      "................",
-      "....PPPP........",
-      "...PPSSP........",
-      "....PSSK........",
-      "....GGG.........",
-      "...GGDGG........",
-      "...GGDGG........",
-      "..GGGGGG........",
-      "..GGGGGD........",
-      "..GGDGGD........",
-      "...G..G.........",
-      "..GB..G.........",
-      "..GB...GB.......",
-      ".BK.....BK......",
-      "................",
-      "................",
-    ],
-    [
-      "................",
-      "....PPPP........",
-      "...PPSSP........",
-      "....PSSK........",
-      "....GGG.........",
-      "...GGDGG........",
-      "...GGDGG........",
-      "..GGGGGG........",
-      "..GGGGGD........",
-      "..GGDGGD........",
-      "...G..G.........",
-      "..G...GB........",
-      ".GB..GB.........",
-      ".BK..BK.........",
-      "................",
-      "................",
-    ],
-    [
-      "................",
-      "....PPPP........",
-      "...PPSSP........",
-      "....PSSK........",
-      "....GGG.........",
-      "...GGDGG........",
-      "...GGDGG........",
-      "..GGGGGG........",
-      "..GGGGGD........",
-      "..GGDGGD........",
-      "...G..G.........",
-      "...GB..G........",
-      "..GB...GB.......",
-      "..BK....BK......",
-      "................",
-      "................",
-    ],
-    [
-      "................",
-      "....PPPP........",
-      "...PPSSP........",
-      "....PSSK........",
-      "....GGG.........",
-      "...GGDGG........",
-      "...GGDGG........",
-      "..GGGGGG........",
-      "..GGGGGD........",
-      "..GGDGGD........",
-      "...G..G.........",
-      "..GB...G........",
-      "..GB..GB........",
-      "...BK..BK.......",
-      "................",
-      "................",
-    ],
-  ],
-};
-
-function renderSpriteFrame(rows) {
-  const h = rows.length;
-  const w = rows[0].length;
-  const bmp = document.createElement("canvas");
-  bmp.width = w;
-  bmp.height = h;
-  const bctx = bmp.getContext("2d");
-  bctx.imageSmoothingEnabled = false;
-
-  for (let y = 0; y < h; y++) {
-    const row = rows[y];
-    for (let x = 0; x < w; x++) {
-      const key = row[x];
-      if (key === ".") continue;
-      const color = PLAYER_SPRITE_PALETTE[key];
-      if (!color) continue;
-      bctx.fillStyle = color;
-      bctx.fillRect(x, y, 1, 1);
-    }
-  }
-  return bmp;
-}
-
-const PLAYER_BITMAPS = {
-  idle: renderSpriteFrame(PLAYER_SPRITE_FRAMES.idle),
-  jump: renderSpriteFrame(PLAYER_SPRITE_FRAMES.jump),
-  walk: PLAYER_SPRITE_FRAMES.walk.map(renderSpriteFrame),
+const PLAYER_FILM = {
+  frameW: 16,
+  frameH: 16,
+  rightWalk: [0, 1, 2, 3],
+  leftWalk: [4, 5, 6, 7],
 };
 
 function drawPlayer() {
@@ -1028,31 +956,40 @@ function drawPlayer() {
   const running = Math.abs(p.vx) > 0.1 && p.onGround;
   const jumpPose = !p.onGround && !p.climbing;
 
-  let frame = PLAYER_BITMAPS.idle;
-  if (jumpPose) {
-    frame = PLAYER_BITMAPS.jump;
-  } else if (running) {
-    const walkIndex = Math.floor(p.animTick) % PLAYER_BITMAPS.walk.length;
-    frame = PLAYER_BITMAPS.walk[walkIndex];
+  let frameIndex = p.facing < 0 ? PLAYER_FILM.leftWalk[0] : PLAYER_FILM.rightWalk[0];
+  if (running) {
+    const cycle = Math.floor(p.animTick) % PLAYER_FILM.rightWalk.length;
+    frameIndex = p.facing < 0 ? PLAYER_FILM.leftWalk[cycle] : PLAYER_FILM.rightWalk[cycle];
+  } else if (jumpPose) {
+    frameIndex = p.facing < 0 ? PLAYER_FILM.leftWalk[2] : PLAYER_FILM.rightWalk[2];
   }
 
   const scale = 6;
-  const spriteW = frame.width * scale;
-  const spriteH = frame.height * scale;
+  const spriteW = PLAYER_FILM.frameW * scale;
+  const spriteH = PLAYER_FILM.frameH * scale;
   const drawX = Math.round(p.x + (p.w - spriteW) / 2);
   const drawY = Math.round(p.y + p.h - spriteH + 10);
 
-  ctx.save();
-  ctx.imageSmoothingEnabled = false;
-  if (p.facing < 0) {
-    ctx.translate(drawX + spriteW, drawY);
-    ctx.scale(-1, 1);
-    ctx.drawImage(frame, 0, 0, spriteW, spriteH);
-  } else {
-    ctx.drawImage(frame, drawX, drawY, spriteW, spriteH);
+  if (playerFilmstrip.complete && playerFilmstrip.naturalWidth > 0) {
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(
+      playerFilmstrip,
+      frameIndex * PLAYER_FILM.frameW,
+      0,
+      PLAYER_FILM.frameW,
+      PLAYER_FILM.frameH,
+      drawX,
+      drawY,
+      spriteW,
+      spriteH,
+    );
+    return;
   }
-  ctx.restore();
+
+  // fallback silhouette if image failed
+  drawPixelRect(drawX + 10, drawY + 8, spriteW - 20, spriteH - 8, "#20b54c");
 }
+
 function drawDeathMessage() {
   if (!gameState.deathMessage) return;
   const text = gameState.deathMessage;
@@ -1085,7 +1022,8 @@ function loop() {
   requestAnimationFrame(loop);
 }
 
-function startGame() {
+async function startGame() {
+  await fileAudio.unlock();
   gameState.started = true;
   splash.classList.remove("active");
   resetPlayerOnScreen();
