@@ -21,6 +21,7 @@ const gameState = {
   deathMessage: "",
   deathMessageUntil: 0,
   treasureBursts: [],
+  screenTransitionLockUntil: 0,
   player: {
     x: 95,
     y: 420,
@@ -140,10 +141,10 @@ class TinySynth {
     this.currentTheme = null;
     this.noteIndex = 0;
     this.themes = {
-      0: { tempo: 220, melody: [262, 330, 392, 523, 392, 330, 294, 349], bass: [131, 147, 165, 196] },
-      1: { tempo: 200, melody: [294, 370, 440, 587, 440, 370, 330, 392], bass: [147, 165, 185, 220] },
-      2: { tempo: 210, melody: [247, 311, 370, 494, 370, 311, 277, 330], bass: [123, 139, 155, 185] },
-      cave: { tempo: 240, melody: [220, 262, 294, 330, 294, 262, 247, 196], bass: [110, 123, 131, 147] },
+      0: { tempo: 190, melody: [392, 523, 587, 659, 784, 698, 659, 880], bass: [131, 165, 196, 220], percussion: [1, 0, 1, 0, 1, 1, 1, 0] },
+      1: { tempo: 176, melody: [440, 554, 622, 698, 831, 740, 698, 932], bass: [147, 185, 220, 247], percussion: [1, 1, 0, 1, 1, 0, 1, 0] },
+      2: { tempo: 186, melody: [370, 494, 554, 622, 740, 659, 622, 831], bass: [123, 156, 185, 208], percussion: [1, 0, 1, 1, 0, 1, 0, 1] },
+      cave: { tempo: 202, melody: [330, 392, 440, 494, 587, 523, 494, 659], bass: [110, 123, 147, 165], percussion: [1, 0, 1, 0, 1, 0, 1, 0] },
     };
   }
 
@@ -151,7 +152,7 @@ class TinySynth {
     if (!this.ctx) {
       this.ctx = new (window.AudioContext || window.webkitAudioContext)();
       this.master = this.ctx.createGain();
-      this.master.gain.value = 0.18;
+      this.master.gain.value = 0.22;
       this.master.connect(this.ctx.destination);
     }
   }
@@ -189,6 +190,22 @@ class TinySynth {
     filter.connect(gain);
     gain.connect(this.master);
     source.start();
+  }
+
+  playDrum(volume = 0.085) {
+    this.ensure();
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = "square";
+    osc.frequency.setValueAtTime(110, now);
+    osc.frequency.exponentialRampToValueAtTime(52, now + 0.12);
+    gain.gain.setValueAtTime(volume, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+    osc.connect(gain);
+    gain.connect(this.master);
+    osc.start(now);
+    osc.stop(now + 0.15);
   }
 
   playJump() {
@@ -241,7 +258,7 @@ class TinySynth {
     this.master.gain.cancelScheduledValues(now);
     this.master.gain.setValueAtTime(this.master.gain.value, now);
     this.master.gain.linearRampToValueAtTime(0.07, now + 0.12);
-    this.master.gain.linearRampToValueAtTime(0.18, now + 0.38);
+    this.master.gain.linearRampToValueAtTime(0.22, now + 0.38);
 
     if (this.musicTimer) clearInterval(this.musicTimer);
     this.noteIndex = 0;
@@ -249,8 +266,10 @@ class TinySynth {
       const i = this.noteIndex;
       const m = theme.melody[i % theme.melody.length];
       const b = theme.bass[i % theme.bass.length];
-      this.beep(m, 0.11, "square", 0.065);
-      this.beep(b, 0.16, "triangle", 0.04);
+      const drum = theme.percussion ? theme.percussion[i % theme.percussion.length] : 0;
+      this.beep(m, 0.15, "square", 0.095);
+      this.beep(b, 0.2, "triangle", 0.055);
+      if (drum) this.playDrum(0.08 + drum * 0.012);
       this.noteIndex++;
     }, theme.tempo);
   }
@@ -291,8 +310,8 @@ function resetPlayerOnScreen(entryDirection = 0) {
   const p = gameState.player;
   p.x = screen.spawn.x;
   p.y = screen.spawn.y;
-  if (entryDirection > 0) p.x = 10;
-  if (entryDirection < 0) p.x = WORLD.width - p.w - 10;
+  if (entryDirection > 0) p.x = 20;
+  if (entryDirection < 0) p.x = WORLD.width - p.w - 20;
   p.vx = 0;
   p.vy = 0;
   p.onGround = false;
@@ -330,40 +349,86 @@ function moveToScreen(direction) {
   if (gameState.underground && !targetBase.underground) gameState.underground = false;
 
   resetPlayerOnScreen(direction);
+  gameState.screenTransitionLockUntil = performance.now() + 350;
   synth.beep(640, 0.1, "square", 0.11);
   synth.beep(820, 0.08, "triangle", 0.08);
+  synth.beep(980, 0.09, "square", 0.07);
   synth.setTheme(themeKeyForCurrentScreen());
   updateHud();
 }
 
-function handleLadder(screen) {
-  const ladder = screen.ladder;
-  if (!ladder) return;
+function activeLadderRect(screen) {
+  if (!screen.ladder) return null;
   const p = gameState.player;
-  if (!intersects({ x: p.x + 6, y: p.y, w: p.w - 12, h: p.h }, ladder)) {
-    if (p.climbing) p.climbing = false;
+  if (gameState.underground) {
+    const bottom = Math.min(WORLD.height, screen.spawn.y + p.h);
+    return { x: screen.ladder.x, y: 0, w: screen.ladder.w, h: bottom };
+  }
+  const top = Math.max(0, screen.spawn.y);
+  return { x: screen.ladder.x, y: top, w: screen.ladder.w, h: WORLD.height - top };
+}
+
+function handleLadder(screen) {
+  const ladder = activeLadderRect(screen);
+  const p = gameState.player;
+  if (!ladder) {
+    p.climbing = false;
     return;
   }
-  if (keys.ArrowUp || keys.ArrowDown) {
+
+  const ladderHitbox = { x: p.x + 6, y: p.y, w: p.w - 12, h: p.h };
+  const touchingLadder = intersects(ladderHitbox, ladder);
+
+  if (p.climbing && (keys.ArrowLeft || keys.ArrowRight)) {
+    if (keys.Space) {
+      p.climbing = false;
+      p.vy = -p.jumpPower;
+      p.vx = keys.ArrowLeft ? -p.speed : p.speed;
+      p.onGround = false;
+      synth.playJump();
+    } else {
+      p.climbing = false;
+    }
+    return;
+  }
+
+  if (!touchingLadder && !p.climbing) return;
+  if (!touchingLadder && p.climbing) {
+    p.climbing = false;
+    return;
+  }
+
+  if (keys.ArrowUp || keys.ArrowDown || p.climbing) {
     p.climbing = true;
     p.vy = 0;
-    if (keys.ArrowUp) p.y -= 3;
-    if (keys.ArrowDown) p.y += 3;
     p.x = ladder.x + ladder.w / 2 - p.w / 2;
 
-    if (!gameState.underground && p.y + p.h >= screen.groundY + 2 && keys.ArrowDown && screens[gameState.screenIndex].underground) {
-      gameState.underground = true;
-      resetPlayerOnScreen();
-      synth.beep(210, 0.14, "square", 0.09);
-      synth.setTheme(themeKeyForCurrentScreen());
-      updateHud();
-    }
-    if (gameState.underground && p.y <= 310 && keys.ArrowUp) {
-      gameState.underground = false;
-      resetPlayerOnScreen();
-      synth.beep(420, 0.12, "square", 0.09);
-      synth.setTheme(themeKeyForCurrentScreen());
-      updateHud();
+    if (keys.ArrowUp) p.y -= 3;
+    if (!gameState.underground && keys.ArrowDown) p.y += 3;
+
+    if (!gameState.underground) {
+      const topStop = ladder.y;
+      const bottomStop = WORLD.height - p.h;
+      p.y = Math.max(topStop, Math.min(bottomStop, p.y));
+
+      if (keys.ArrowDown && p.y + p.h >= WORLD.height - 1 && screens[gameState.screenIndex].underground) {
+        gameState.underground = true;
+        resetPlayerOnScreen();
+        synth.beep(210, 0.14, "square", 0.09);
+        synth.setTheme(themeKeyForCurrentScreen());
+        updateHud();
+      }
+    } else {
+      const bottomStop = ladder.y + ladder.h - p.h;
+      p.y = Math.min(bottomStop, p.y);
+
+      if (keys.ArrowUp && p.y <= 0) {
+        gameState.underground = false;
+        resetPlayerOnScreen();
+        synth.beep(420, 0.12, "square", 0.09);
+        synth.setTheme(themeKeyForCurrentScreen());
+        updateHud();
+      }
     }
   }
 }
@@ -404,19 +469,22 @@ function resolvePlatforms(screen) {
   p.y += p.vy;
 
   const solids = [];
-  const floorParts = [{ x: 0, y: screen.groundY, w: WORLD.width, h: WORLD.height - screen.groundY }];
 
-  for (const obs of screen.obstacles || []) {
-    if (obs.type === "gap" || obs.type === "quicksand" || obs.type === "river" || obs.type === "rockPit") {
-      floorParts.push({ x: 0, y: screen.groundY, w: obs.x, h: WORLD.height - screen.groundY });
-      floorParts.push({ x: obs.x + obs.w, y: screen.groundY, w: WORLD.width - (obs.x + obs.w), h: WORLD.height - screen.groundY });
+  if (!p.climbing) {
+    const floorParts = [{ x: 0, y: screen.groundY, w: WORLD.width, h: WORLD.height - screen.groundY }];
+
+    for (const obs of screen.obstacles || []) {
+      if (obs.type === "gap" || obs.type === "quicksand" || obs.type === "river" || obs.type === "rockPit") {
+        floorParts.push({ x: 0, y: screen.groundY, w: obs.x, h: WORLD.height - screen.groundY });
+        floorParts.push({ x: obs.x + obs.w, y: screen.groundY, w: WORLD.width - (obs.x + obs.w), h: WORLD.height - screen.groundY });
+      }
+      if (obs.type === "fallenTree" || obs.type === "stalagmite" || obs.type === "spikes") solids.push({ x: obs.x, y: obs.y, w: obs.w, h: obs.h });
     }
-    if (obs.type === "fallenTree" || obs.type === "stalagmite" || obs.type === "spikes") solids.push({ x: obs.x, y: obs.y, w: obs.w, h: obs.h });
-  }
 
-  for (const part of floorParts) solids.push(part);
-  for (const platform of screen.platforms || []) solids.push(platform);
-  for (const log of screen.movingLogs || []) solids.push(log);
+    for (const part of floorParts) solids.push(part);
+    for (const platform of screen.platforms || []) solids.push(platform);
+    for (const log of screen.movingLogs || []) solids.push(log);
+  }
 
   let landed = false;
   for (const solid of solids) {
@@ -467,8 +535,10 @@ function resolvePlatforms(screen) {
     }
   }
 
-  if (p.x + p.w < 0) moveToScreen(-1);
-  if (p.x > WORLD.width) moveToScreen(1);
+  if (performance.now() >= gameState.screenTransitionLockUntil) {
+    if (p.x <= -20) moveToScreen(-1);
+    if (p.x >= WORLD.width + 20) moveToScreen(1);
+  }
   p.x = Math.max(-20, Math.min(WORLD.width + 20, p.x));
 }
 
@@ -627,9 +697,10 @@ function drawObstacles(screen) {
     drawPixelRect(log.x + 10, log.y + 6, log.w - 20, 4, "#b07a44");
   }
 
-  if (screen.ladder) {
-    drawPixelRect(screen.ladder.x, screen.ladder.y, screen.ladder.w, screen.ladder.h, "#c58f4f");
-    for (let y = screen.ladder.y + 8; y < screen.ladder.y + screen.ladder.h; y += 18) drawPixelRect(screen.ladder.x, y, screen.ladder.w, 4, "#83582e");
+  const ladder = activeLadderRect(screen);
+  if (ladder) {
+    drawPixelRect(ladder.x, ladder.y, ladder.w, ladder.h, "#c58f4f");
+    for (let y = ladder.y + 8; y < ladder.y + ladder.h; y += 18) drawPixelRect(ladder.x, y, ladder.w, 4, "#83582e");
   }
 
   for (const animal of screen.animals || []) {
