@@ -10,8 +10,8 @@ const startButton = document.getElementById("start-button");
 const buildMetaEl = document.getElementById("build-meta");
 
 const BUILD_INFO = {
-  number: "B-2026.02.26-01",
-  timestampUtc: "2026-02-26T22:20:00Z",
+  number: "B-2026.02.26-02",
+  timestampUtc: "2026-02-26T23:10:00Z",
 };
 
 const WORLD = { width: canvas.width, height: canvas.height, gravity: 0.62 };
@@ -28,6 +28,8 @@ const gameState = {
   deathMessageUntil: 0,
   treasureBursts: [],
   screenTransitionLockUntil: 0,
+  respawnPending: false,
+  respawnAt: 0,
   player: {
     x: 95,
     y: 420,
@@ -80,9 +82,9 @@ const screens = [
     foliage: true,
     obstacles: [{ type: "river", x: 180, y: 420, w: 560, h: 84 }],
     movingLogs: [
-      { x: 230, y: 440, w: 140, h: 20, speed: 1.15 },
-      { x: 430, y: 450, w: 150, h: 20, speed: -1.15 },
-      { x: 620, y: 432, w: 150, h: 20, speed: 1.35 },
+      { x: 230, y: 440, w: 140, h: 20, speed: 1.15, minX: 220, maxX: 500 },
+      { x: 430, y: 450, w: 150, h: 20, speed: -1.15, minX: 360, maxX: 620 },
+      { x: 620, y: 432, w: 150, h: 20, speed: 1.35, minX: 500, maxX: 700 },
     ],
     animals: [{ type: "frog", x: 770, y: 444, w: 28, h: 22, minX: 760, maxX: 860, speed: 0.8, dir: 1, phase: 0 }],
     ladder: { x: 70, y: 250, w: 42, h: 290 },
@@ -148,10 +150,30 @@ class TinySynth {
     this.currentTheme = null;
     this.noteIndex = 0;
     this.themes = {
-      0: { tempo: 190, melody: [392, 523, 587, 659, 784, 698, 659, 880], bass: [131, 165, 196, 220], percTempo: 95, percussion: [1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0] },
-      1: { tempo: 176, melody: [440, 554, 622, 698, 831, 740, 698, 932], bass: [147, 185, 220, 247], percTempo: 88, percussion: [1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1] },
-      2: { tempo: 186, melody: [370, 494, 554, 622, 740, 659, 622, 831], bass: [123, 156, 185, 208], percTempo: 92, percussion: [1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0] },
-      cave: { tempo: 202, melody: [330, 392, 440, 494, 587, 523, 494, 659], bass: [110, 123, 147, 165], percTempo: 101, percussion: [1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0] },
+      0: {
+        stepMs: 150,
+        melody: [523, null, 659, 698, 784, null, 659, 587, 523, null, 659, 784, 880, 784, 698, null],
+        bass: [131, null, null, 165, null, 196, null, 165, 147, null, null, 185, null, 220, null, 185],
+        percussion: [1, 0, 3, 0, 2, 0, 3, 0, 1, 0, 3, 0, 2, 0, 3, 4],
+      },
+      1: {
+        stepMs: 144,
+        melody: [554, null, 698, 740, 831, null, 740, 698, 622, null, 740, 831, 932, 831, 740, null],
+        bass: [147, null, null, 185, null, 220, null, 185, 165, null, null, 208, null, 247, null, 208],
+        percussion: [1, 0, 3, 0, 2, 0, 3, 4, 1, 0, 3, 0, 2, 0, 3, 0],
+      },
+      2: {
+        stepMs: 148,
+        melody: [494, null, 622, 659, 740, null, 659, 622, 554, null, 659, 740, 831, 740, 659, null],
+        bass: [123, null, null, 156, null, 185, null, 156, 139, null, null, 175, null, 208, null, 175],
+        percussion: [1, 0, 3, 0, 2, 0, 3, 0, 1, 0, 3, 4, 2, 0, 3, 0],
+      },
+      cave: {
+        stepMs: 158,
+        melody: [392, null, 494, 523, 587, null, 523, 494, 440, null, 523, 587, 659, 587, 523, null],
+        bass: [110, null, null, 123, null, 147, null, 123, 131, null, null, 147, null, 165, null, 147],
+        percussion: [1, 0, 0, 3, 2, 0, 3, 0, 1, 0, 0, 3, 2, 0, 3, 4],
+      },
     };
   }
 
@@ -205,14 +227,22 @@ class TinySynth {
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
     osc.type = "square";
-    osc.frequency.setValueAtTime(110, now);
-    osc.frequency.exponentialRampToValueAtTime(52, now + 0.12);
+    osc.frequency.setValueAtTime(105, now);
+    osc.frequency.exponentialRampToValueAtTime(48, now + 0.14);
     gain.gain.setValueAtTime(volume, now);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
     osc.connect(gain);
     gain.connect(this.master);
     osc.start(now);
-    osc.stop(now + 0.15);
+    osc.stop(now + 0.17);
+  }
+
+  playSnare(volume = 0.06) {
+    this.noise(0.09, volume);
+  }
+
+  playHat(volume = 0.04) {
+    this.noise(0.03, volume);
   }
 
   playJump() {
@@ -240,14 +270,17 @@ class TinySynth {
     this.beep(104, 0.26, "triangle", 0.1);
   }
 
-  playSadPhraseThenResume(themeKey) {
+  playSadPhraseThenResume(themeKey, durationMs = 2000) {
     this.ensure();
-    const notes = [262, 220, 196, 165];
+    const notes = [294, 262, 220, 196, 175, 165, 147, 131];
+    const spacing = durationMs / notes.length;
     notes.forEach((n, i) => {
-      this.beep(n, 0.17 + i * 0.005, "triangle", 0.07);
-      this.beep(n / 2, 0.2, "square", 0.05);
+      setTimeout(() => {
+        this.beep(n, 0.2, "triangle", 0.075);
+        this.beep(n / 2, 0.22, "square", 0.05);
+      }, i * spacing);
     });
-    setTimeout(() => this.setTheme(themeKey), 900);
+    setTimeout(() => this.setTheme(themeKey), durationMs);
   }
 
   startMusic(themeKey) {
@@ -271,22 +304,31 @@ class TinySynth {
     if (this.percussionTimer) clearInterval(this.percussionTimer);
 
     this.noteIndex = 0;
-    let percIndex = 0;
 
     this.musicTimer = setInterval(() => {
-      const i = this.noteIndex;
-      const m = theme.melody[i % theme.melody.length];
-      const b = theme.bass[i % theme.bass.length];
-      this.beep(m, 0.15, "square", 0.095);
-      this.beep(b, 0.2, "triangle", 0.055);
+      const i = this.noteIndex % theme.melody.length;
+      const m = theme.melody[i];
+      const b = theme.bass[i];
+      if (m) this.beep(m, 0.16, "square", 0.092);
+      if (b) this.beep(b, 0.22, "triangle", 0.055);
       this.noteIndex++;
-    }, theme.tempo);
+    }, theme.stepMs);
 
+    let percIndex = 0;
     this.percussionTimer = setInterval(() => {
       const hit = theme.percussion[percIndex % theme.percussion.length];
-      if (hit) this.playDrum(0.082 + (percIndex % 3) * 0.01);
+      if (hit === 1) this.playDrum(0.09);
+      if (hit === 2) this.playSnare(0.065);
+      if (hit === 3) {
+        this.playDrum(0.085);
+        this.playHat(0.035);
+      }
+      if (hit === 4) {
+        this.playSnare(0.06);
+        this.playHat(0.04);
+      }
       percIndex++;
-    }, theme.percTempo || Math.max(80, Math.floor(theme.tempo / 2)));
+    }, Math.floor(theme.stepMs / 2));
   }
 
 }
@@ -334,13 +376,14 @@ function resetPlayerOnScreen(entryDirection = 0) {
 }
 
 function loseLife(reason) {
+  if (gameState.respawnPending) return;
   gameState.lives = Math.max(0, gameState.lives - 1);
   gameState.deathMessage = `You were defeated by ${reason}.`;
-  gameState.deathMessageUntil = performance.now() + 5000;
   gameState.player.justDied = true;
+  gameState.respawnPending = true;
+  gameState.respawnAt = performance.now() + 2000;
   synth.playDeath();
-  synth.playSadPhraseThenResume(themeKeyForCurrentScreen());
-  resetPlayerOnScreen();
+  synth.playSadPhraseThenResume(themeKeyForCurrentScreen(), 2000);
   updateHud();
 }
 
@@ -474,10 +517,25 @@ function handleLadder(screen) {
 
 function updateMovingLogs(screen) {
   if (!screen.movingLogs) return;
-  for (const log of screen.movingLogs) {
+  for (const [idx, log] of screen.movingLogs.entries()) {
+    if (log.baseY === undefined) {
+      log.baseY = log.y;
+      log.sinkPhase = idx * 1.7;
+      log.sinkRate = 0.032 + idx * 0.008;
+      log.sinkDepth = 26 + idx * 4;
+    }
+
     log.x += log.speed;
-    if (log.x < 170) log.speed = Math.abs(log.speed);
-    if (log.x + log.w > 770) log.speed = -Math.abs(log.speed);
+    const minX = log.minX ?? 190;
+    const maxX = log.maxX ?? 740;
+    if (log.x < minX) log.speed = Math.abs(log.speed);
+    if (log.x > maxX) log.speed = -Math.abs(log.speed);
+
+    log.sinkPhase += log.sinkRate;
+    const sinkWave = Math.sin(log.sinkPhase);
+    const sinkAmount = sinkWave < -0.2 ? ((-0.2 - sinkWave) / 0.8) * log.sinkDepth : 0;
+    log.y = log.baseY + sinkAmount;
+    log.isSurfaced = sinkAmount < log.sinkDepth * 0.45;
   }
 }
 
@@ -516,22 +574,43 @@ function resolvePlatforms(screen) {
   p.x += p.vx;
   p.y += p.vy;
 
+  if (performance.now() >= gameState.screenTransitionLockUntil) {
+    if (p.x <= -p.w * 0.55) {
+      moveToScreen(-1);
+      return;
+    }
+    if (p.x + p.w >= WORLD.width + p.w * 0.55) {
+      moveToScreen(1);
+      return;
+    }
+  }
+
   const solids = [];
 
   if (!p.climbing) {
-    const floorParts = [{ x: 0, y: screen.groundY, w: WORLD.width, h: WORLD.height - screen.groundY }];
+    let segments = [{ start: 0, end: WORLD.width }];
 
     for (const obs of screen.obstacles || []) {
       if (obs.type === "gap" || obs.type === "quicksand" || obs.type === "river" || obs.type === "rockPit") {
-        floorParts.push({ x: 0, y: screen.groundY, w: obs.x, h: WORLD.height - screen.groundY });
-        floorParts.push({ x: obs.x + obs.w, y: screen.groundY, w: WORLD.width - (obs.x + obs.w), h: WORLD.height - screen.groundY });
+        const next = [];
+        for (const seg of segments) {
+          if (obs.x >= seg.end || obs.x + obs.w <= seg.start) {
+            next.push(seg);
+            continue;
+          }
+          if (obs.x > seg.start) next.push({ start: seg.start, end: obs.x });
+          if (obs.x + obs.w < seg.end) next.push({ start: obs.x + obs.w, end: seg.end });
+        }
+        segments = next;
       }
       if (obs.type === "fallenTree" || obs.type === "stalagmite" || obs.type === "spikes") solids.push({ x: obs.x, y: obs.y, w: obs.w, h: obs.h });
     }
 
-    for (const part of floorParts) solids.push(part);
+    for (const seg of segments) solids.push({ x: seg.start, y: screen.groundY, w: seg.end - seg.start, h: WORLD.height - screen.groundY });
     for (const platform of screen.platforms || []) solids.push({ ...platform, oneWay: true });
-    for (const log of screen.movingLogs || []) solids.push({ ...log, oneWay: true });
+    for (const log of screen.movingLogs || []) {
+      if (log.isSurfaced !== false) solids.push({ ...log, oneWay: true, speed: log.speed });
+    }
   }
 
   let landed = false;
@@ -562,9 +641,12 @@ function resolvePlatforms(screen) {
   if (!wasOnGround && landed && !p.justDied) synth.playLand();
   p.justDied = false;
 
-  if (p.y > WORLD.height + 40) loseLife("a bottomless fall");
+  if (p.y > WORLD.height + 40) {
+    loseLife("a bottomless fall");
+    return;
+  }
 
-  const hazardHitbox = { x: p.x + p.w * 0.25, y: p.y + 4, w: p.w * 0.5, h: p.h - 4 };
+  const hazardHitbox = { x: p.x + p.w * 0.32, y: p.y + 4, w: p.w * 0.36, h: p.h - 4 };
 
   for (const obs of screen.obstacles || []) {
     const fatalZone = obstacleFatalZone(obs);
@@ -584,10 +666,6 @@ function resolvePlatforms(screen) {
     }
   }
 
-  if (performance.now() >= gameState.screenTransitionLockUntil) {
-    if (p.x <= -20) moveToScreen(-1);
-    if (p.x >= WORLD.width + 20) moveToScreen(1);
-  }
   p.x = Math.max(-20, Math.min(WORLD.width + 20, p.x));
 }
 
@@ -640,6 +718,17 @@ function drawTreasureBursts() {
 function update() {
   const p = gameState.player;
   const screen = currentScreen();
+
+  if (gameState.respawnPending) {
+    if (performance.now() >= gameState.respawnAt) {
+      resetPlayerOnScreen();
+      gameState.respawnPending = false;
+      gameState.deathMessageUntil = performance.now() + 3000;
+    } else {
+      updateTreasureBursts();
+      return;
+    }
+  }
 
   updateMovingLogs(screen);
   updateAnimals(screen);
@@ -742,8 +831,9 @@ function drawObstacles(screen) {
 
   for (const platform of screen.platforms || []) drawPixelRect(platform.x, platform.y, platform.w, platform.h, "#70532d");
   for (const log of screen.movingLogs || []) {
-    drawPixelRect(log.x, log.y, log.w, log.h, "#986738");
-    drawPixelRect(log.x + 10, log.y + 6, log.w - 20, 4, "#b07a44");
+    const tone = log.isSurfaced === false ? "#6d4b27" : "#986738";
+    drawPixelRect(log.x, log.y, log.w, log.h, tone);
+    if (log.isSurfaced !== false) drawPixelRect(log.x + 10, log.y + 6, log.w - 20, 4, "#b07a44");
   }
 
   const ladder = activeLadderRect(screen);
