@@ -7,6 +7,12 @@ const livesEl = document.getElementById("lives");
 const screenNameEl = document.getElementById("screen-name");
 const splash = document.getElementById("splash");
 const startButton = document.getElementById("start-button");
+const buildMetaEl = document.getElementById("build-meta");
+
+const BUILD_INFO = {
+  number: "B-2026.02.26-01",
+  timestampUtc: "2026-02-26T22:20:00Z",
+};
 
 const WORLD = { width: canvas.width, height: canvas.height, gravity: 0.62 };
 const keys = { ArrowLeft: false, ArrowRight: false, ArrowUp: false, ArrowDown: false, Space: false };
@@ -138,13 +144,14 @@ class TinySynth {
     this.ctx = null;
     this.master = null;
     this.musicTimer = null;
+    this.percussionTimer = null;
     this.currentTheme = null;
     this.noteIndex = 0;
     this.themes = {
-      0: { tempo: 190, melody: [392, 523, 587, 659, 784, 698, 659, 880], bass: [131, 165, 196, 220], percussion: [1, 0, 1, 0, 1, 1, 1, 0] },
-      1: { tempo: 176, melody: [440, 554, 622, 698, 831, 740, 698, 932], bass: [147, 185, 220, 247], percussion: [1, 1, 0, 1, 1, 0, 1, 0] },
-      2: { tempo: 186, melody: [370, 494, 554, 622, 740, 659, 622, 831], bass: [123, 156, 185, 208], percussion: [1, 0, 1, 1, 0, 1, 0, 1] },
-      cave: { tempo: 202, melody: [330, 392, 440, 494, 587, 523, 494, 659], bass: [110, 123, 147, 165], percussion: [1, 0, 1, 0, 1, 0, 1, 0] },
+      0: { tempo: 190, melody: [392, 523, 587, 659, 784, 698, 659, 880], bass: [131, 165, 196, 220], percTempo: 95, percussion: [1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0] },
+      1: { tempo: 176, melody: [440, 554, 622, 698, 831, 740, 698, 932], bass: [147, 185, 220, 247], percTempo: 88, percussion: [1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1] },
+      2: { tempo: 186, melody: [370, 494, 554, 622, 740, 659, 622, 831], bass: [123, 156, 185, 208], percTempo: 92, percussion: [1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0] },
+      cave: { tempo: 202, melody: [330, 392, 440, 494, 587, 523, 494, 659], bass: [110, 123, 147, 165], percTempo: 101, percussion: [1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0] },
     };
   }
 
@@ -250,7 +257,7 @@ class TinySynth {
 
   setTheme(themeKey) {
     this.ensure();
-    if (this.currentTheme === themeKey && this.musicTimer) return;
+    if (this.currentTheme === themeKey && this.musicTimer && this.percussionTimer) return;
     this.currentTheme = themeKey;
     const theme = this.themes[themeKey] || this.themes[0];
     const now = this.ctx.currentTime;
@@ -261,18 +268,27 @@ class TinySynth {
     this.master.gain.linearRampToValueAtTime(0.22, now + 0.38);
 
     if (this.musicTimer) clearInterval(this.musicTimer);
+    if (this.percussionTimer) clearInterval(this.percussionTimer);
+
     this.noteIndex = 0;
+    let percIndex = 0;
+
     this.musicTimer = setInterval(() => {
       const i = this.noteIndex;
       const m = theme.melody[i % theme.melody.length];
       const b = theme.bass[i % theme.bass.length];
-      const drum = theme.percussion ? theme.percussion[i % theme.percussion.length] : 0;
       this.beep(m, 0.15, "square", 0.095);
       this.beep(b, 0.2, "triangle", 0.055);
-      if (drum) this.playDrum(0.08 + drum * 0.012);
       this.noteIndex++;
     }, theme.tempo);
+
+    this.percussionTimer = setInterval(() => {
+      const hit = theme.percussion[percIndex % theme.percussion.length];
+      if (hit) this.playDrum(0.082 + (percIndex % 3) * 0.01);
+      percIndex++;
+    }, theme.percTempo || Math.max(80, Math.floor(theme.tempo / 2)));
   }
+
 }
 
 const synth = new TinySynth();
@@ -338,6 +354,29 @@ function updateHud() {
 
 function intersects(a, b) {
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+
+function obstacleFatalZone(obs) {
+  if (obs.type === "river") return { x: obs.x, y: obs.y + 46, w: obs.w, h: Math.max(0, obs.h - 46) };
+  if (["quicksand", "gap", "rockPit", "spikes", "stalagmite"].includes(obs.type)) return obs;
+  return null;
+}
+
+function animalBlockedByObstacle(screen, animal, nextX) {
+  const footY = animal.y + animal.h + 2;
+  const centerX = nextX + animal.w / 2;
+
+  if (centerX < 0 || centerX > WORLD.width) return true;
+  for (const obs of screen.obstacles || []) {
+    if (footY >= screen.groundY - 2 && (obs.type === "gap" || obs.type === "quicksand" || obs.type === "river" || obs.type === "rockPit")) {
+      if (centerX >= obs.x && centerX <= obs.x + obs.w) return true;
+    }
+    if (obs.type === "spikes" || obs.type === "stalagmite") {
+      if (centerX >= obs.x - animal.w * 0.2 && centerX <= obs.x + obs.w + animal.w * 0.2 && footY >= obs.y - 2) return true;
+    }
+  }
+  return false;
 }
 
 function moveToScreen(direction) {
@@ -446,7 +485,16 @@ function updateAnimals(screen) {
   for (const animal of screen.animals || []) {
     animal.phase = (animal.phase || 0) + 0.14;
     if (animal.minX !== undefined && animal.maxX !== undefined && animal.speed) {
-      animal.x += animal.speed * (animal.dir || 1);
+      const step = animal.speed * (animal.dir || 1);
+      const nextX = animal.x + step;
+
+      if (animalBlockedByObstacle(screen, animal, nextX)) {
+        animal.dir = -(animal.dir || 1);
+        continue;
+      }
+
+      animal.x = nextX;
+
       if (animal.x < animal.minX) {
         animal.x = animal.minX;
         animal.dir = 1;
@@ -482,8 +530,8 @@ function resolvePlatforms(screen) {
     }
 
     for (const part of floorParts) solids.push(part);
-    for (const platform of screen.platforms || []) solids.push(platform);
-    for (const log of screen.movingLogs || []) solids.push(log);
+    for (const platform of screen.platforms || []) solids.push({ ...platform, oneWay: true });
+    for (const log of screen.movingLogs || []) solids.push({ ...log, oneWay: true });
   }
 
   let landed = false;
@@ -498,13 +546,13 @@ function resolvePlatforms(screen) {
         p.y = solid.y - p.h;
         p.vy = 0;
         landed = true;
-        if (screen.movingLogs && screen.movingLogs.includes(solid)) p.x += solid.speed;
-      } else if (prevTop >= solid.y + solid.h - 6 && p.vy < 0) {
+        if (solid.speed) p.x += solid.speed;
+      } else if (!solid.oneWay && prevTop >= solid.y + solid.h - 6 && p.vy < 0) {
         p.y = solid.y + solid.h;
         p.vy = 0;
-      } else if (prevRight <= solid.x + 6 && p.vx > 0) {
+      } else if (!solid.oneWay && prevRight <= solid.x + 6 && p.vx > 0) {
         p.x = solid.x - p.w;
-      } else if (prevLeft >= solid.x + solid.w - 6 && p.vx < 0) {
+      } else if (!solid.oneWay && prevLeft >= solid.x + solid.w - 6 && p.vx < 0) {
         p.x = solid.x + solid.w;
       }
     }
@@ -516,20 +564,21 @@ function resolvePlatforms(screen) {
 
   if (p.y > WORLD.height + 40) loseLife("a bottomless fall");
 
+  const hazardHitbox = { x: p.x + p.w * 0.25, y: p.y + 4, w: p.w * 0.5, h: p.h - 4 };
+
   for (const obs of screen.obstacles || []) {
-    let fatalZone = obs;
-    if (obs.type === "river") {
-      // Deeper-only fatal region so all log landings are safely possible.
-      fatalZone = { x: obs.x, y: obs.y + 46, w: obs.w, h: Math.max(0, obs.h - 46) };
-    }
-    if (["quicksand", "river", "gap", "rockPit", "spikes", "stalagmite"].includes(obs.type) && intersects(p, fatalZone)) {
+    const fatalZone = obstacleFatalZone(obs);
+    if (fatalZone && intersects(hazardHitbox, fatalZone)) {
       loseLife(obstacleLabel(obs.type));
       return;
     }
   }
 
   for (const animal of screen.animals || []) {
-    if (intersects(p, animal)) {
+    const animalHitbox = animal.type === "bat"
+      ? { x: animal.x - 10, y: animal.y - 8, w: animal.w + 20, h: animal.h + 16 }
+      : animal;
+    if (intersects(p, animalHitbox)) {
       loseLife(animalLabel(animal.type));
       return;
     }
@@ -901,7 +950,7 @@ function drawPlayer() {
   const spriteW = frame.width * scale;
   const spriteH = frame.height * scale;
   const drawX = Math.round(p.x + (p.w - spriteW) / 2);
-  const drawY = Math.round(p.y + p.h - spriteH);
+  const drawY = Math.round(p.y + p.h - spriteH + 10);
 
   ctx.save();
   ctx.imageSmoothingEnabled = false;
@@ -975,6 +1024,8 @@ window.addEventListener("keyup", (event) => {
 });
 
 startButton.addEventListener("click", startGame);
+
+if (buildMetaEl) buildMetaEl.textContent = `Build ${BUILD_INFO.number} • ${BUILD_INFO.timestampUtc}`;
 
 updateHud();
 loop();

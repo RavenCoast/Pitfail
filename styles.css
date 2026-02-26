@@ -114,3 +114,11 @@ body {
 #start-button:focus-visible {
   filter: brightness(1.15);
 }
+
+
+.build-meta {
+  margin: 6px 0 0;
+  color: #9fd3ff;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
