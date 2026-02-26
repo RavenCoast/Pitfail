@@ -20,6 +20,7 @@ const gameState = {
   musicStarted: false,
   deathMessage: "",
   deathMessageUntil: 0,
+  treasureBursts: [],
   player: {
     x: 95,
     y: 420,
@@ -46,7 +47,7 @@ const screens = [
     obstacles: [{ type: "quicksand", x: 336, y: 450, w: 72, h: 20 }],
     treasure: { type: "silver", x: 620, y: 434, w: 26, h: 22, value: 50, collected: false },
     animals: [{ type: "snake", x: 640, y: 438, w: 52, h: 24, minX: 620, maxX: 760, speed: 1.1, dir: 1, phase: 0 }],
-    ladder: { x: 760, y: 320, w: 42, h: 150 },
+    ladder: { x: 760, y: 250, w: 42, h: 290 },
     underground: {
       name: "Root Cavern",
       spawn: { x: 760, y: 420 },
@@ -60,7 +61,7 @@ const screens = [
         { x: 120, y: 372, w: 120, h: 18 },
         { x: 360, y: 332, w: 140, h: 18 },
       ],
-      ladder: { x: 760, y: 320, w: 42, h: 150 },
+      ladder: { x: 760, y: 250, w: 42, h: 290 },
       animals: [{ type: "bat", x: 430, y: 250, w: 44, h: 20, minX: 380, maxX: 610, speed: 1.5, dir: 1, phase: 0 }],
       treasure: { type: "gold", x: 370, y: 304, w: 28, h: 24, value: 100, collected: false },
     },
@@ -77,7 +78,7 @@ const screens = [
       { x: 620, y: 432, w: 150, h: 20, speed: 1.35 },
     ],
     animals: [{ type: "frog", x: 770, y: 444, w: 28, h: 22, minX: 760, maxX: 860, speed: 0.8, dir: 1, phase: 0 }],
-    ladder: { x: 70, y: 320, w: 42, h: 150 },
+    ladder: { x: 70, y: 250, w: 42, h: 290 },
     underground: {
       name: "Flooded Grotto",
       spawn: { x: 88, y: 420 },
@@ -91,7 +92,7 @@ const screens = [
         { x: 320, y: 330, w: 110, h: 18 },
         { x: 560, y: 300, w: 140, h: 18 },
       ],
-      ladder: { x: 70, y: 320, w: 42, h: 150 },
+      ladder: { x: 70, y: 250, w: 42, h: 290 },
       animals: [{ type: "lizard", x: 640, y: 440, w: 56, h: 20, minX: 560, maxX: 820, speed: 1.4, dir: 1, phase: 0 }],
       treasure: { type: "gold", x: 594, y: 282, w: 28, h: 24, value: 100, collected: false },
     },
@@ -108,7 +109,7 @@ const screens = [
     ],
     platforms: [{ x: 560, y: 392, w: 130, h: 18 }],
     animals: [{ type: "panther", x: 740, y: 432, w: 70, h: 30, minX: 700, maxX: 850, speed: 1.4, dir: 1, phase: 0 }],
-    ladder: { x: 420, y: 320, w: 42, h: 150 },
+    ladder: { x: 420, y: 250, w: 42, h: 290 },
     treasure: null,
     underground: {
       name: "Rock Maze",
@@ -124,7 +125,7 @@ const screens = [
         { x: 300, y: 352, w: 120, h: 18 },
         { x: 460, y: 312, w: 120, h: 18 },
       ],
-      ladder: { x: 420, y: 320, w: 42, h: 150 },
+      ladder: { x: 420, y: 250, w: 42, h: 290 },
       animals: [{ type: "lizard", x: 560, y: 442, w: 54, h: 18, minX: 500, maxX: 700, speed: 1.0, dir: -1, phase: 0 }],
       treasure: { type: "silver", x: 142, y: 370, w: 26, h: 22, value: 50, collected: false },
     },
@@ -200,6 +201,12 @@ class TinySynth {
     this.noise(0.05, 0.04);
     this.beep(180, 0.08, "square", 0.11);
     this.beep(120, 0.1, "triangle", 0.08);
+  }
+
+  playTreasureStinger(type = "gold") {
+    const bright = type === "gold" ? [880, 1175, 1480] : [740, 988, 1318];
+    bright.forEach((f, i) => this.beep(f, 0.08 + i * 0.02, "square", 0.11 - i * 0.01));
+    this.beep(bright[2] * 1.25, 0.18, "triangle", 0.09);
   }
 
   playDeath() {
@@ -279,11 +286,13 @@ function themeKeyForCurrentScreen() {
   return gameState.screenIndex;
 }
 
-function resetPlayerOnScreen() {
+function resetPlayerOnScreen(entryDirection = 0) {
   const screen = currentScreen();
   const p = gameState.player;
   p.x = screen.spawn.x;
   p.y = screen.spawn.y;
+  if (entryDirection > 0) p.x = 10;
+  if (entryDirection < 0) p.x = WORLD.width - p.w - 10;
   p.vx = 0;
   p.vy = 0;
   p.onGround = false;
@@ -320,7 +329,7 @@ function moveToScreen(direction) {
   const targetBase = screens[gameState.screenIndex];
   if (gameState.underground && !targetBase.underground) gameState.underground = false;
 
-  resetPlayerOnScreen();
+  resetPlayerOnScreen(direction);
   synth.beep(640, 0.1, "square", 0.11);
   synth.beep(820, 0.08, "triangle", 0.08);
   synth.setTheme(themeKeyForCurrentScreen());
@@ -479,9 +488,33 @@ function collectTreasure(screen) {
   if (intersects(gameState.player, t)) {
     t.collected = true;
     gameState.score += t.value;
-    synth.beep(980, 0.08, "square", 0.1);
-    synth.beep(1240, 0.1, "triangle", 0.08);
+    const sparkleColor = t.type === "gold" ? "#ffe166" : "#d8e6ff";
+    gameState.treasureBursts.push({ x: t.x + t.w / 2, y: t.y + t.h / 2, color: sparkleColor, life: 34, type: t.type });
+    synth.playTreasureStinger(t.type);
     updateHud();
+  }
+}
+
+function updateTreasureBursts() {
+  for (let i = gameState.treasureBursts.length - 1; i >= 0; i--) {
+    const burst = gameState.treasureBursts[i];
+    burst.life -= 1;
+    if (burst.life <= 0) gameState.treasureBursts.splice(i, 1);
+  }
+}
+
+function drawTreasureBursts() {
+  for (const burst of gameState.treasureBursts) {
+    const t = 1 - burst.life / 34;
+    const radius = 8 + t * 18;
+    const arms = burst.type === "gold" ? 10 : 8;
+    ctx.fillStyle = burst.color;
+    for (let i = 0; i < arms; i++) {
+      const a = (Math.PI * 2 * i) / arms + t * 0.8;
+      const px = burst.x + Math.cos(a) * radius;
+      const py = burst.y + Math.sin(a) * (radius * 0.7);
+      drawPixelRect(px - 2, py - 2, 4, 4, burst.color);
+    }
   }
 }
 
@@ -516,6 +549,7 @@ function update() {
 
   resolvePlatforms(screen);
   collectTreasure(screen);
+  updateTreasureBursts();
 
   if (gameState.deathMessage && performance.now() > gameState.deathMessageUntil) gameState.deathMessage = "";
 }
@@ -792,7 +826,7 @@ function drawPlayer() {
     frame = PLAYER_BITMAPS.walk[walkIndex];
   }
 
-  const scale = 2;
+  const scale = 6;
   const spriteW = frame.width * scale;
   const spriteH = frame.height * scale;
   const drawX = Math.round(p.x + (p.w - spriteW) / 2);
@@ -825,6 +859,7 @@ function draw() {
   drawBackground(screen);
   drawObstacles(screen);
   drawTreasure(screen.treasure);
+  drawTreasureBursts();
   drawPlayer();
   drawDeathMessage();
 
