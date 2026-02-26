@@ -82,3 +82,7 @@ https://ravencoast.github.io/Pitfail/
 
 If the latest build is not visible yet, wait 1-3 minutes and refresh (GitHub Pages redeploy can take a moment).
 
+## Build refresh note
+
+If you ever hit a merge mistake, ask for a **depot refresh build** and I can publish a fresh commit/PR so you have a clean new merge target.
+
