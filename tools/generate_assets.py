@@ -297,6 +297,10 @@ def generate_audio() -> None:
     synth_tone(AUDIO_DIR / "land.wav", [(180, 0.18), (140, 0.16)], bpm=170)
     synth_tone(AUDIO_DIR / "death.wav", [(280, 0.20), (220, 0.18), (160, 0.25), (110, 0.30)], bpm=180)
     synth_tone(AUDIO_DIR / "treasure.wav", [(900, 0.08), (1200, 0.08), (1500, 0.10)], bpm=240)
+    synth_tone(AUDIO_DIR / "whip_cast.wav", [(420, 0.05), (700, 0.06)], bpm=260)
+    synth_tone(AUDIO_DIR / "whip_retract.wav", [(620, 0.04), (360, 0.06)], bpm=260)
+    synth_tone(AUDIO_DIR / "whip_hit.wav", [(190, 0.05), (130, 0.05)], bpm=220)
+    synth_tone(AUDIO_DIR / "ow.wav", [(330, 0.08), (260, 0.12)], bpm=180)
 
     surface_melody = [
         523.25, None, 659.25, 783.99, 659.25, None, 587.33, 523.25,
@@ -349,6 +353,10 @@ def main() -> int:
     print("- assets/audio/land.wav")
     print("- assets/audio/death.wav")
     print("- assets/audio/treasure.wav")
+    print("- assets/audio/whip_cast.wav")
+    print("- assets/audio/whip_retract.wav")
+    print("- assets/audio/whip_hit.wav")
+    print("- assets/audio/ow.wav")
     print("- assets/audio/music_surface.wav")
     print("- assets/audio/music_cave.wav")
     return 0

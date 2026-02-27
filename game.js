@@ -24,6 +24,10 @@ class FileAudioManager {
       land: new Audio("assets/audio/land.wav"),
       death: new Audio("assets/audio/death.wav"),
       treasure: new Audio("assets/audio/treasure.wav"),
+      whipCast: new Audio("assets/audio/whip_cast.wav"),
+      whipRetract: new Audio("assets/audio/whip_retract.wav"),
+      whipHit: new Audio("assets/audio/whip_hit.wav"),
+      ow: new Audio("assets/audio/ow.wav"),
     };
     this.music = {
       surface: new Audio("assets/audio/music_surface.wav"),
@@ -95,7 +99,7 @@ const gameState = {
   respawnPending: false,
   respawnAt: 0,
   lastEntrySide: 1,
-  whip: { active: false, phase: 0, cooldownUntil: 0 },
+  whip: { active: false, phase: 0, cooldownUntil: 0, hitApplied: false, playedRetract: false },
   player: {
     x: 95,
     y: 420,
@@ -132,25 +136,51 @@ function generateName(rand, theme, content) {
   return `${a} ${b} ${c}`;
 }
 
-function makePlatforms(rand, count, yPattern) {
+function makePlatforms(rand, count, yPattern, water = null) {
   const platforms = [];
-  const band = [300, 338, 376, 414];
-  let x = 90 + Math.floor(rand() * 40);
+  const maxY = 426; // never lower than top of player head on ground plane
+  const yCandidates = yPattern.filter((y) => y <= maxY);
+  const usedY = new Set();
+
   for (let i = 0; i < count; i++) {
-    const w = 90 + Math.floor(rand() * 56);
-    const y = yPattern[i % yPattern.length] ?? band[i % band.length];
+    let y = yCandidates[i % yCandidates.length] ?? (300 + i * 28);
+    while (usedY.has(y)) y -= 28;
+    y = Math.max(280, Math.min(maxY, y));
+    usedY.add(y);
+
+    const w = 98 + Math.floor(rand() * 48);
+    let x = 90 + i * 220 + Math.floor(rand() * 40);
+
+    if (water && i % 2 === 1) {
+      const overWaterMin = water.x + 14;
+      const overWaterMax = water.x + water.w - w - 14;
+      if (overWaterMax > overWaterMin) x = Math.floor(overWaterMin + rand() * (overWaterMax - overWaterMin));
+    }
+
     platforms.push({ x, y, w, h: 18 });
-    x += w + 70 + Math.floor(rand() * 34);
-    if (x > WORLD.width - 170) x = 110 + (i * 60);
   }
-  // prevent overlap hard clamp
+
   platforms.sort((a, b) => a.x - b.x);
   for (let i = 1; i < platforms.length; i++) {
     const prev = platforms[i - 1];
     const cur = platforms[i];
     if (cur.x < prev.x + prev.w + 32) cur.x = prev.x + prev.w + 32;
   }
-  return platforms.filter((p) => p.x + p.w < WORLD.width - 30);
+
+  return platforms.filter((p) => p.x + p.w < WORLD.width - 25);
+}
+
+function overlapsWater(rect, water) {
+  if (!water || !rect) return false;
+  return rect.x < water.x + water.w && rect.x + rect.w > water.x && rect.y < water.y + water.h && rect.y + rect.h > water.y;
+}
+
+function pickSafeX(rand, w, water = null, min = 40, max = WORLD.width - 40) {
+  for (let i = 0; i < 20; i++) {
+    const x = Math.floor(min + rand() * (Math.max(min + 1, max - w - min)));
+    if (!water || (x + w < water.x - 10) || (x > water.x + water.w + 10)) return x;
+  }
+  return water && water.x > WORLD.width / 2 ? 60 : WORLD.width - w - 60;
 }
 
 function generateScreens(seed = 1337, count = 8) {
@@ -159,72 +189,102 @@ function generateScreens(seed = 1337, count = 8) {
 
   for (let i = 0; i < count; i++) {
     const ladderX = rand() < 0.5 ? 56 : 862;
-    const hasLadder = rand() > 0.18;
-    const hasAnimal = rand() > 0.25;
-    const hasTreasure = rand() > 0.35;
-    const obsTypes = ["quicksand", "gap", "fallenTree", "river"];
-    const cObs = 1 + Math.floor(rand() * 2);
+    const hasLadder = rand() > 0.2;
+    const hasAnimal = rand() > 0.2;
+    const hasTreasure = rand() > 0.33;
+    const forceRiver = rand() > 0.25;
+
     const obstacles = [];
-    for (let k = 0; k < cObs; k++) {
-      const type = pick(rand, obsTypes);
-      const x = 180 + Math.floor(rand() * 540);
-      const w = type === "fallenTree" ? 150 : type === "river" ? 220 : 72 + Math.floor(rand() * 40);
-      const y = type === "fallenTree" ? 430 : type === "river" ? 420 : 450;
-      const h = type === "river" ? 84 : type === "fallenTree" ? 35 : type === "gap" ? 70 : 20;
+    const hazardChoices = ["quicksand", "gap", "fallenTree"];
+    if (forceRiver) {
+      const riverW = Math.max(Math.floor(WORLD.width / 3), 340 + Math.floor(rand() * 140));
+      const riverX = Math.floor(120 + rand() * (WORLD.width - riverW - 240));
+      obstacles.push({ type: "river", x: riverX, y: 420, w: riverW, h: 84 });
+    }
+    const extraCount = 1 + Math.floor(rand() * 2);
+    for (let k = 0; k < extraCount; k++) {
+      const type = pick(rand, hazardChoices);
+      const w = type === "fallenTree" ? 150 : 72 + Math.floor(rand() * 40);
+      const h = type === "fallenTree" ? 35 : type === "gap" ? 70 : 20;
+      const y = type === "fallenTree" ? 430 : 450;
+      const x = 160 + Math.floor(rand() * 620);
       obstacles.push({ type, x, y, w, h });
     }
 
-    const hasLogs = obstacles.some((o) => o.type === "river");
-    const movingLogs = hasLogs ? [
-      { x: 210, y: 432, w: 140, h: 20, speed: 1.15 + rand() * 0.4, minX: 180, maxX: 470 },
-      { x: 430, y: 446, w: 150, h: 20, speed: -(1.05 + rand() * 0.45), minX: 340, maxX: 670 },
-      { x: 640, y: 428, w: 145, h: 20, speed: 1.1 + rand() * 0.45, minX: 520, maxX: 820 },
-    ] : undefined;
+    const water = obstacles.find((o) => o.type === "river") || null;
 
-    const platforms = makePlatforms(rand, 2 + Math.floor(rand() * 2), [338, 300, 338, 376]);
+    const movingLogs = water ? [0,1,2].map((idx) => {
+      const w = 118 + Math.floor(rand() * 26);
+      const laneY = [430, 444, 428][idx];
+      const minX = water.x + 8;
+      const maxX = water.x + water.w - w - 8;
+      const startX = Math.floor(minX + rand() * Math.max(1, (maxX - minX)));
+      const speedBase = 1.0 + rand() * 0.5;
+      return { x: startX, y: laneY, w, h: 20, speed: idx % 2 ? -speedBase : speedBase, minX, maxX };
+    }) : undefined;
 
-    const animal = hasAnimal ? [pick(rand, [
-      { type: "snake", x: 740, y: 438, w: 52, h: 24, minX: 620, maxX: 860, speed: 1.1, dir: 1, phase: 0 },
-      { type: "frog", x: 760, y: 444, w: 28, h: 22, minX: 710, maxX: 880, speed: 0.8, dir: 1, phase: 0 },
-      { type: "panther", x: 730, y: 432, w: 70, h: 30, minX: 620, maxX: 880, speed: 1.25, dir: 1, phase: 0, hp: 2 },
-    ])] : [];
+    const platforms = makePlatforms(rand, 3 + Math.floor(rand() * 2), [338, 300, 338, 376, 312], water);
 
-    const treasure = hasTreasure ? { type: rand() > 0.5 ? "gold" : "silver", x: 680, y: 430, w: 28, h: 24, value: rand() > 0.5 ? 100 : 50, collected: false } : null;
-    const content = obstacles.map((o)=>o.type);
-    const name = generateName(rand, 'surface', content);
+    const animals = [];
+    if (hasAnimal) {
+      const template = pick(rand, [
+        { type: "snake", y: 438, w: 52, h: 24, speed: 1.1 },
+        { type: "frog", y: 444, w: 28, h: 22, speed: 0.8 },
+        { type: "panther", y: 432, w: 70, h: 30, speed: 1.25, hp: 2 },
+      ]);
+      const minX = water ? (water.x + water.w + 30 < WORLD.width - 120 ? water.x + water.w + 24 : 60) : 80;
+      const maxX = water ? (water.x - 30 > 180 ? water.x - 20 : WORLD.width - 70) : 880;
+      const x = pickSafeX(rand, template.w, water, minX, maxX);
+      animals.push({ x, minX: Math.max(20, minX), maxX: Math.min(WORLD.width - 20, maxX), dir: 1, phase: 0, ...template });
+    }
 
+    const treasure = hasTreasure
+      ? (() => {
+          const tw = 28; const th = 24;
+          const tx = pickSafeX(rand, tw, water, 70, WORLD.width - 70);
+          return { type: rand() > 0.5 ? "gold" : "silver", x: tx, y: 430, w: tw, h: th, value: rand() > 0.5 ? 100 : 50, collected: false };
+        })()
+      : null;
+
+    const ladder = hasLadder ? { x: ladderX, y: 250, w: 42, h: 290 } : null;
+    const ladderSafe = ladder && water && overlapsWater(ladder, water) ? { ...ladder, x: water.x < WORLD.width / 2 ? 862 : 56 } : ladder;
+
+    const content = obstacles.map((o) => o.type);
     const caveObs = [pick(rand, [
       { type: "rockPit", x: 250, y: 452, w: 86, h: 18 },
       { type: "spikes", x: 300, y: 445, w: 84, h: 25 },
       { type: "stalagmite", x: 520, y: 430, w: 60, h: 40 },
-    ]), pick(rand,[{ type:"spikes",x:620,y:445,w:82,h:25},{type:"rockPit",x:450,y:452,w:80,h:18}])];
+    ]), pick(rand, [{ type: "spikes", x: 620, y: 445, w: 82, h: 25 }, { type: "rockPit", x: 450, y: 452, w: 80, h: 18 }])];
 
-    surface.push({
-      name,
+    const surfaceScreen = {
+      name: generateName(rand, "surface", content),
       spawn: { x: ladderX < WORLD.width / 2 ? 80 : 820, y: 420 },
       groundY: 470,
       foliage: true,
       obstacles,
       platforms,
       movingLogs,
-      animals: animal,
-      ladder: hasLadder ? { x: ladderX, y: 250, w: 42, h: 290 } : null,
-      treasure,
+      animals,
+      ladder: ladderSafe,
+      treasure: treasure && water && overlapsWater(treasure, water) ? { ...treasure, x: pickSafeX(rand, treasure.w, water, 60, WORLD.width - 60) } : treasure,
       underground: {
-        name: generateName(rand, 'cave', caveObs.map((o)=>o.type)),
+        name: generateName(rand, "cave", caveObs.map((o) => o.type)),
         spawn: { x: ladderX < WORLD.width / 2 ? 80 : 820, y: 420 },
         groundY: 470,
         obstacles: caveObs,
         platforms: makePlatforms(rand, 3, [360, 330, 360, 300]),
-        ladder: hasLadder ? { x: ladderX, y: 250, w: 42, h: 290 } : null,
-        animals: rand() > 0.45 ? [pick(rand,[
+        ladder: ladderSafe ? { x: ladderSafe.x, y: 250, w: 42, h: 290 } : null,
+        animals: rand() > 0.45 ? [pick(rand, [
           { type: "bat", x: 430, y: 250, w: 44, h: 20, minX: 300, maxX: 700, speed: 1.5, dir: 1, phase: 0 },
           { type: "lizard", x: 640, y: 440, w: 56, h: 20, minX: 540, maxX: 820, speed: 1.3, dir: 1, phase: 0 },
         ])] : [],
         treasure: rand() > 0.5 ? { type: "gold", x: 590, y: 300, w: 28, h: 24, value: 100, collected: false } : null,
       },
-    });
+    };
+
+    surface.push(surfaceScreen);
   }
+
   return surface;
 }
 
@@ -361,6 +421,30 @@ class TinySynth {
     this.beep(240, 0.14, "sawtooth", 0.12);
     this.beep(170, 0.2, "square", 0.1);
     this.beep(104, 0.26, "triangle", 0.1);
+  }
+
+  playWhipCast() {
+    if (fileAudio.playSfx("whipCast")) return;
+    this.beep(420, 0.05, "square", 0.11);
+    this.beep(700, 0.06, "triangle", 0.08);
+  }
+
+  playWhipRetract() {
+    if (fileAudio.playSfx("whipRetract")) return;
+    this.beep(620, 0.04, "square", 0.09);
+    this.beep(360, 0.06, "triangle", 0.07);
+  }
+
+  playWhipHit() {
+    if (fileAudio.playSfx("whipHit")) return;
+    this.noise(0.04, 0.09);
+    this.beep(180, 0.05, "square", 0.09);
+  }
+
+  playOw() {
+    if (fileAudio.playSfx("ow")) return;
+    this.beep(330, 0.08, "sawtooth", 0.1);
+    this.beep(260, 0.12, "triangle", 0.08);
   }
 
   playSadPhraseThenResume(themeKey, durationMs = 2000) {
@@ -714,7 +798,8 @@ function applyWhipHit(screen) {
     if (intersects(hit, box)) {
       animal.hp = (animal.hp === undefined ? (animal.type === "panther" ? 2 : 1) : animal.hp) - 1;
       if (animal.type === "panther" && animal.hp === 1) animal.charging = true;
-      synth.playSnare(0.08);
+      synth.playWhipHit();
+      if (animal.hp <= 0) synth.playOw();
       return true;
     }
   }
@@ -916,7 +1001,9 @@ function update() {
     gameState.whip.active = true;
     gameState.whip.phase = 0;
     gameState.whip.hitApplied = false;
+    gameState.whip.playedRetract = false;
     gameState.whip.cooldownUntil = now + 520;
+    synth.playWhipCast();
   }
   if (gameState.whip.active) {
     gameState.whip.phase += 0.24;
@@ -924,7 +1011,13 @@ function update() {
       applyWhipHit(screen);
       gameState.whip.hitApplied = true;
     }
-    if (gameState.whip.phase >= 1) gameState.whip.active = false;
+    if (gameState.whip.phase >= 1) {
+      if (!gameState.whip.playedRetract) {
+        synth.playWhipRetract();
+        gameState.whip.playedRetract = true;
+      }
+      gameState.whip.active = false;
+    }
   }
 
   resolvePlatforms(screen);
@@ -1067,7 +1160,7 @@ function drawPlayer() {
     frameIndex = p.facing < 0 ? PLAYER_FILM.leftWalk[2] : PLAYER_FILM.rightWalk[2];
   }
 
-  const scale = 6;
+  const scale = 4.8;
   const spriteW = PLAYER_FILM.frameW * scale;
   const spriteH = PLAYER_FILM.frameH * scale;
   let drawX = Math.round(p.x + (p.w - spriteW) / 2);
@@ -1111,14 +1204,14 @@ function drawPlayer() {
   if (gameState.whip.active) {
     const t = gameState.whip.phase;
     const ext = t < 0.5 ? t / 0.5 : (1 - t) / 0.5;
-    const whipLen = 16 + ext * 84;
+    const whipLen = 20 + ext * 92;
     const startX = p.facing > 0 ? p.x + p.w + 2 : p.x - 2;
-    const startY = p.y + 18;
+    const startY = p.y + 22;
     const dir = p.facing > 0 ? 1 : -1;
-    for (let i = 0; i < whipLen; i += 8) {
-      const wobble = Math.sin((i / 12) + t * 14) * 4;
-      drawPixelRect(startX + dir * i, startY + wobble, 6, 2, "#d8a94f");
-    }
+    const thickness = ext > 0.85 ? 2 : 3;
+    drawPixelRect(startX, startY, dir * whipLen, thickness, "#2b1a0f");
+    const tipX = startX + dir * whipLen;
+    drawPixelRect(tipX - (dir > 0 ? 0 : 2), startY - 1, 3, 5, "#1a110a");
   }
 }
 
