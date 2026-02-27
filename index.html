@@ -28,7 +28,22 @@
       <p>Jump, climb, and survive the jungle!</p>
       <p>Controls: ← → move, ↑/↓ climb ladders, SPACE jump, X bullwhip.</p>
       <p id="build-meta" class="build-meta"></p>
+      <label class="mode-row" for="play-mode">Mode:
+        <select id="play-mode">
+          <option value="human" selected>1 Player (Human)</option>
+          <option value="auto">0 Player (Auto-Playtest)</option>
+        </select>
+      </label>
       <button id="start-button">Start Adventure</button>
+      <section id="auto-report" class="auto-report" hidden>
+        <h3>Auto-Playtest Report</h3>
+        <p>Copy and paste this report into Codex for next-round tuning.</p>
+        <textarea id="report-text" readonly></textarea>
+        <div class="report-actions">
+          <button id="copy-report" type="button">Copy Report + Return</button>
+          <button id="close-report" type="button">Close</button>
+        </div>
+      </section>
     </div>
   </section>
 
