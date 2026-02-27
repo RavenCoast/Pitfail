@@ -83,7 +83,7 @@ class FileAudioManager {
 const fileAudio = new FileAudioManager();
 
 const WORLD = { width: canvas.width, height: canvas.height, gravity: 0.62 };
-const ELEMENT_BUFFER = 28;
+const ELEMENT_BUFFER = 42;
 const keys = { ArrowLeft: false, ArrowRight: false, ArrowUp: false, ArrowDown: false, Space: false, KeyX: false };
 
 const gameState = {
@@ -187,6 +187,25 @@ function pickSafeX(rand, w, water = null, min = 40, max = WORLD.width - 40, gap 
 function rectGapSeparated(a, b, gap = ELEMENT_BUFFER) {
   return (a.x + a.w + gap <= b.x) || (b.x + b.w + gap <= a.x);
 }
+function rectsOverlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function overlapsBlockingElements(rect, obstacles, platforms = [], ladder = null, extra = []) {
+  const blocking = new Set(["gap", "rockPit", "quicksand", "river", "spikes", "stalagmite", "fallenTree"]);
+  for (const o of obstacles || []) {
+    if (blocking.has(o.type) && rectsOverlap(rect, o)) return true;
+  }
+  for (const p of platforms || []) {
+    if (rectsOverlap(rect, p)) return true;
+  }
+  if (ladder && rectsOverlap(rect, ladder)) return true;
+  for (const e of extra || []) {
+    if (e && rectsOverlap(rect, e)) return true;
+  }
+  return false;
+}
+
 
 function generateScreens(seed = 1337, count = 8) {
   const rand = mulberry32(seed);
@@ -242,8 +261,29 @@ function generateScreens(seed = 1337, count = 8) {
     let platforms = makePlatforms(rand, 3 + Math.floor(rand() * 2), [338, 300, 338, 376, 312], water);
     // If water has logs, remove any platform above/over water to keep water-log hazards primary.
     if (water && movingLogs) platforms = platforms.filter((pl) => !overlapsWater(pl, water));
-    // Water-only encounter (no logs) can use platforms over water.
+    // Water-only encounter (no logs) can use platforms over water, but ensure left/right anchors are jumpable.
+    if (water && !movingLogs && platforms.length >= 2) {
+      const sorted = [...platforms].sort((a, b) => a.x - b.x);
+      const minJumpableY = 360;
+      sorted[0].y = Math.max(sorted[0].y, minJumpableY);
+      sorted[sorted.length - 1].y = Math.max(sorted[sorted.length - 1].y, minJumpableY);
+    }
 
+    const ladder = hasLadder ? { x: ladderX, y: 250, w: 42, h: 290 } : null;
+    const ladderSafe = ladder && water && overlapsWater(ladder, water) ? { ...ladder, x: water.x < WORLD.width / 2 ? 862 : 56 } : ladder;
+
+    let treasure = null;
+    if (hasTreasure) {
+      const tw = 28; const th = 24;
+      for (let attempt = 0; attempt < 24; attempt++) {
+        const tx = pickSafeX(rand, tw, water, 70, WORLD.width - 70, ELEMENT_BUFFER);
+        const candidate = { type: rand() > 0.5 ? "gold" : "silver", x: tx, y: 430, w: tw, h: th, value: rand() > 0.5 ? 100 : 50, collected: false };
+        if (!overlapsBlockingElements(candidate, obstacles, platforms, ladderSafe)) {
+          treasure = candidate;
+          break;
+        }
+      }
+    }
 
     const animals = [];
     if (hasAnimal) {
@@ -254,20 +294,15 @@ function generateScreens(seed = 1337, count = 8) {
       ]);
       const minX = water ? (water.x + water.w + 30 < WORLD.width - 120 ? water.x + water.w + 24 : 60) : 80;
       const maxX = water ? (water.x - 30 > 180 ? water.x - 20 : WORLD.width - 70) : 880;
-      const x = pickSafeX(rand, template.w, water, minX, maxX, ELEMENT_BUFFER);
-      animals.push({ x, minX: Math.max(20, minX), maxX: Math.min(WORLD.width - 20, maxX), dir: 1, phase: 0, ...template });
+      for (let attempt = 0; attempt < 24; attempt++) {
+        const x = pickSafeX(rand, template.w, water, minX, maxX, ELEMENT_BUFFER);
+        const candidate = { x, y: template.y, w: template.w, h: template.h };
+        if (!overlapsBlockingElements(candidate, obstacles, platforms, ladderSafe, treasure ? [treasure] : [])) {
+          animals.push({ x, minX: Math.max(20, minX), maxX: Math.min(WORLD.width - 20, maxX), dir: 1, phase: 0, ...template });
+          break;
+        }
+      }
     }
-
-    const treasure = hasTreasure
-      ? (() => {
-          const tw = 28; const th = 24;
-          const tx = pickSafeX(rand, tw, water, 70, WORLD.width - 70, ELEMENT_BUFFER);
-          return { type: rand() > 0.5 ? "gold" : "silver", x: tx, y: 430, w: tw, h: th, value: rand() > 0.5 ? 100 : 50, collected: false };
-        })()
-      : null;
-
-    const ladder = hasLadder ? { x: ladderX, y: 250, w: 42, h: 290 } : null;
-    const ladderSafe = ladder && water && overlapsWater(ladder, water) ? { ...ladder, x: water.x < WORLD.width / 2 ? 862 : 56 } : ladder;
 
     const content = obstacles.map((o) => o.type);
     const caveObs = [pick(rand, [
@@ -286,7 +321,7 @@ function generateScreens(seed = 1337, count = 8) {
       movingLogs,
       animals,
       ladder: ladderSafe,
-      treasure: treasure && water && overlapsWater(treasure, water) ? { ...treasure, x: pickSafeX(rand, treasure.w, water, 60, WORLD.width - 60, ELEMENT_BUFFER) } : treasure,
+      treasure,
       underground: {
         name: generateName(rand, "cave", caveObs.map((o) => o.type)),
         spawn: { x: ladderX < WORLD.width / 2 ? 80 : 820, y: 420 },
@@ -294,11 +329,20 @@ function generateScreens(seed = 1337, count = 8) {
         obstacles: caveObs,
         platforms: makePlatforms(rand, 3, [360, 330, 360, 300]),
         ladder: ladderSafe ? { x: ladderSafe.x, y: 250, w: 42, h: 290 } : null,
-        animals: rand() > 0.45 ? [pick(rand, [
-          { type: "bat", x: 430, y: 250, w: 44, h: 20, minX: 300, maxX: 700, speed: 1.5, dir: 1, phase: 0 },
-          { type: "lizard", x: 640, y: 440, w: 56, h: 20, minX: 540, maxX: 820, speed: 1.3, dir: 1, phase: 0 },
-        ])] : [],
-        treasure: rand() > 0.5 ? { type: "gold", x: 590, y: 300, w: 28, h: 24, value: 100, collected: false } : null,
+        animals: (() => {
+          if (rand() <= 0.45) return [];
+          const t = pick(rand, [
+            { type: "bat", x: 430, y: 250, w: 44, h: 20, minX: 300, maxX: 700, speed: 1.5, dir: 1, phase: 0 },
+            { type: "lizard", x: 640, y: 440, w: 56, h: 20, minX: 540, maxX: 820, speed: 1.3, dir: 1, phase: 0 },
+          ]);
+          const probe = { x: t.x, y: t.y, w: t.w, h: t.h };
+          return overlapsBlockingElements(probe, caveObs, [], ladderSafe ? { x: ladderSafe.x, y: 250, w: 42, h: 290 } : null) ? [] : [t];
+        })(),
+        treasure: (() => {
+          if (rand() <= 0.5) return null;
+          const t = { type: "gold", x: 590, y: 300, w: 28, h: 24, value: 100, collected: false };
+          return overlapsBlockingElements(t, caveObs) ? null : t;
+        })(),
       },
     };
 
@@ -887,7 +931,10 @@ function resolvePlatforms(screen) {
         p.vy = 0;
         landed = true;
         if (solid.speed) p.x += solid.speed;
-        if (solid.sourceType === "platform" && solid.source) solid.source.wobbleV = -1.4;
+        if (solid.sourceType === "platform" && solid.source) {
+          solid.source.wobbleAmp = Math.min(4.5, (solid.source.wobbleAmp || 0) + 1.8);
+          solid.source.wobbleTick = (solid.source.wobbleTick || 0) + 0.3;
+        }
       } else if (!solid.oneWay && prevTop >= solid.y + solid.h - 6 && p.vy < 0) {
         p.y = solid.y + solid.h;
         p.vy = 0;
@@ -957,15 +1004,15 @@ function collectTreasure(screen) {
 function updatePlatformWobbles(screen) {
   for (const platform of screen.platforms || []) {
     platform.wobbleY = platform.wobbleY || 0;
-    platform.wobbleV = platform.wobbleV || 0;
-    if (Math.abs(platform.wobbleY) > 0.01 || Math.abs(platform.wobbleV) > 0.01) {
-      platform.wobbleV += 0.22;
-      platform.wobbleY += platform.wobbleV;
-      if (platform.wobbleY > 0) {
-        platform.wobbleY = 0;
-        platform.wobbleV *= -0.45;
-      }
-      platform.wobbleV *= 0.92;
+    platform.wobbleAmp = platform.wobbleAmp || 0;
+    platform.wobbleTick = platform.wobbleTick || 0;
+    if (platform.wobbleAmp > 0.03) {
+      platform.wobbleTick += 0.48;
+      platform.wobbleY = Math.sin(platform.wobbleTick) * platform.wobbleAmp;
+      platform.wobbleAmp *= 0.86;
+    } else {
+      platform.wobbleAmp = 0;
+      platform.wobbleY = 0;
     }
   }
 }
@@ -1074,6 +1121,8 @@ function drawBackground(screen) {
   if (gameState.underground) {
     drawPixelRect(0, 0, WORLD.width, WORLD.height, "#1c1630");
     for (let i = 0; i < 30; i++) drawPixelRect(i * 40, 0, 20, WORLD.height, i % 2 ? "#2f2550" : "#261f43");
+    drawPixelRect(0, screen.groundY, WORLD.width, WORLD.height - screen.groundY, "#3b2b22");
+    drawPixelRect(0, screen.groundY - 6, WORLD.width, 6, "#5a4233");
   } else {
     drawPixelRect(0, 0, WORLD.width, 280, "#4cc4ff");
     drawPixelRect(0, 280, WORLD.width, WORLD.height - 280, "#2f9853");
