@@ -136,6 +136,16 @@ const gameState = {
   },
 };
 
+
+function resetInputState() {
+  keys.ArrowLeft = false;
+  keys.ArrowRight = false;
+  keys.ArrowUp = false;
+  keys.ArrowDown = false;
+  keys.Space = false;
+  keys.KeyX = false;
+}
+
 function resetAutoStats() {
   gameState.auto.active = false;
   gameState.auto.startedAt = 0;
@@ -213,8 +223,7 @@ function applyAutoPilot() {
 
   if (performance.now() >= gameState.auto.deadlineAt) {
     gameState.auto.active = false;
-    keys.Space = false;
-    keys.KeyX = false;
+    resetInputState();
     showAutoReport();
   }
 }
@@ -1548,6 +1557,7 @@ async function startGame() {
   gameState.mode = playModeSelect?.value === "auto" ? "auto" : "human";
   clearReportUI();
   resetAutoStats();
+  resetInputState();
   gameState.started = true;
   splash.classList.remove("active");
   resetPlayerOnScreen();
@@ -1592,6 +1602,8 @@ if (copyReportButton) {
     } catch (_) {
       copyReportButton.textContent = "Copy failed";
     }
+    gameState.auto.active = false;
+    resetInputState();
     gameState.started = false;
     splash.classList.add("active");
   });
@@ -1599,6 +1611,8 @@ if (copyReportButton) {
 
 if (closeReportButton) {
   closeReportButton.addEventListener("click", () => {
+    gameState.auto.active = false;
+    resetInputState();
     gameState.started = false;
     splash.classList.add("active");
     if (autoReportEl) autoReportEl.hidden = true;
