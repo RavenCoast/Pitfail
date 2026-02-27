@@ -448,6 +448,7 @@ function loseLife(reason) {
   if (gameState.respawnPending) return;
   gameState.lives = Math.max(0, gameState.lives - 1);
   gameState.deathMessage = `You were defeated by ${reason}.`;
+  gameState.deathMessageUntil = performance.now() + 5000;
   gameState.player.justDied = true;
   gameState.respawnPending = true;
   gameState.respawnAt = performance.now() + 2000;
@@ -792,7 +793,7 @@ function update() {
     if (performance.now() >= gameState.respawnAt) {
       resetPlayerOnScreen();
       gameState.respawnPending = false;
-      gameState.deathMessageUntil = performance.now() + 3000;
+      gameState.deathMessageUntil = Math.max(gameState.deathMessageUntil, performance.now() + 3000);
     } else {
       updateTreasureBursts();
       return;
@@ -828,7 +829,7 @@ function update() {
   collectTreasure(screen);
   updateTreasureBursts();
 
-  if (gameState.deathMessage && performance.now() > gameState.deathMessageUntil) gameState.deathMessage = "";
+  if (!gameState.respawnPending && gameState.deathMessage && performance.now() > gameState.deathMessageUntil) gameState.deathMessage = "";
 }
 
 function drawPixelRect(x, y, w, h, color) {

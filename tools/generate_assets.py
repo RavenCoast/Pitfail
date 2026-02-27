@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
-"""Generate local PNG/WAV assets for Pitfail without committing binaries.
-
-This script intentionally uses only the Python standard library so it can run on
-most machines with a single command.
-"""
+"""Generate local PNG/WAV assets for Pitfail without committing binaries."""
 
 from __future__ import annotations
 
 import argparse
 import math
+import random
 import struct
 import wave
 import zlib
@@ -62,32 +59,95 @@ def _rect(px: bytearray, w: int, x: int, y: int, rw: int, rh: int, color: tuple[
             _put(px, w, xx, yy, color)
 
 
+def _draw_frame_right(
+    px: bytearray,
+    canvas_w: int,
+    ox: int,
+    *,
+    front_leg: tuple[int, int, int],
+    back_leg: tuple[int, int, int],
+    front_arm: tuple[int, int, int],
+    back_arm: tuple[int, int, int],
+) -> None:
+    transparent = (0, 0, 0, 0)
+    tunic = (35, 181, 77, 255)
+    tunic_dark = (22, 122, 54, 255)
+    skin = (255, 222, 178, 255)
+    boot = (40, 34, 45, 255)
+    outline = (14, 22, 32, 255)
+
+    _rect(px, canvas_w, ox, 0, 16, 16, transparent)
+
+    # Head/profile facing right.
+    _rect(px, canvas_w, ox + 9, 2, 4, 3, skin)
+    _put(px, canvas_w, ox + 13, 3, outline)  # eye
+    _put(px, canvas_w, ox + 12, 4, outline)  # nose/chin hint
+
+    # Torso and shoulder.
+    _rect(px, canvas_w, ox + 7, 5, 4, 6, tunic)
+    _rect(px, canvas_w, ox + 7, 5, 2, 6, tunic_dark)
+
+    # Back arm (upper + forearm) bent elbow.
+    bux, buy, bfx = back_arm
+    _rect(px, canvas_w, ox + bux, buy, 2, 2, tunic_dark)
+    _rect(px, canvas_w, ox + bfx, buy + 2, 2, 2, tunic_dark)
+
+    # Front arm (upper + forearm) bent elbow.
+    fux, fuy, ffx = front_arm
+    _rect(px, canvas_w, ox + fux, fuy, 2, 2, tunic)
+    _rect(px, canvas_w, ox + ffx, fuy + 2, 2, 2, tunic)
+
+    # Back leg (thigh + shin) with knee bend.
+    btx, bty, bsx = back_leg
+    _rect(px, canvas_w, ox + btx, bty, 2, 2, tunic_dark)
+    _rect(px, canvas_w, ox + bsx, bty + 2, 2, 2, tunic_dark)
+    _rect(px, canvas_w, ox + bsx, bty + 4, 2, 1, boot)
+
+    # Front leg (thigh + shin) with knee bend.
+    ftx, fty, fsx = front_leg
+    _rect(px, canvas_w, ox + ftx, fty, 2, 2, tunic)
+    _rect(px, canvas_w, ox + fsx, fty + 2, 2, 2, tunic)
+    _rect(px, canvas_w, ox + fsx, fty + 4, 2, 1, boot)
+
+
 def generate_player_filmstrip(path: Path) -> None:
     frame_w, frame_h, frames = 16, 16, 8
     width, height = frame_w * frames, frame_h
     px = bytearray(width * height * 4)
 
-    transparent = (0, 0, 0, 0)
-    green = (33, 181, 76, 255)
-    dark_green = (18, 115, 48, 255)
-    skin = (255, 220, 173, 255)
-    eye = (12, 24, 34, 255)
+    # Right-facing run cycle (4 frames): explicit side profile with elbow/knee bends.
+    run_cycle = [
+        {
+            "front_leg": (10, 11, 12),
+            "back_leg": (8, 11, 7),
+            "front_arm": (10, 7, 12),
+            "back_arm": (7, 6, 6),
+        },
+        {
+            "front_leg": (10, 11, 11),
+            "back_leg": (8, 11, 8),
+            "front_arm": (10, 7, 11),
+            "back_arm": (7, 6, 7),
+        },
+        {
+            "front_leg": (9, 11, 8),
+            "back_leg": (10, 11, 11),
+            "front_arm": (8, 7, 7),
+            "back_arm": (10, 6, 11),
+        },
+        {
+            "front_leg": (9, 11, 9),
+            "back_leg": (10, 11, 10),
+            "front_arm": (8, 7, 8),
+            "back_arm": (10, 6, 10),
+        },
+    ]
 
-    for f in range(frames):
+    for f in range(4):
         ox = f * frame_w
-        _rect(px, width, ox, 0, frame_w, frame_h, transparent)
-        _rect(px, width, ox + 6, 5, 4, 7, green)
-        _rect(px, width, ox + 6, 3, 4, 2, skin)
-        _rect(px, width, ox + 9, 4, 1, 1, eye)
+        _draw_frame_right(px, width, ox, **run_cycle[f])
 
-        arm_offset = [0, 1, 0, -1][f % 4]
-        _rect(px, width, ox + 5, 7 + arm_offset, 1, 3, dark_green)
-        _rect(px, width, ox + 10, 7 - arm_offset, 1, 3, dark_green)
-
-        leg_offset = [0, 1, 0, -1][f % 4]
-        _rect(px, width, ox + 6, 12, 1, 3 + max(0, leg_offset), dark_green)
-        _rect(px, width, ox + 9, 12, 1, 3 + max(0, -leg_offset), dark_green)
-
+    # Mirror right-walk (first 4) into left-walk (last 4)
     for f in range(4):
         src_ox = f * frame_w
         dst_ox = (f + 4) * frame_w
@@ -138,22 +198,140 @@ def synth_tone(path: Path, notes: list[tuple[float, float]], bpm: int = 120, sam
         wf.writeframes(bytes(frames))
 
 
+def _kick(phase_t: float) -> float:
+    freq = 120.0 - 70.0 * min(1.0, phase_t / 0.12)
+    amp = max(0.0, 1.0 - phase_t / 0.18)
+    return math.sin(2 * math.pi * freq * phase_t) * amp
+
+
+def _snare(phase_t: float, rng: random.Random) -> float:
+    amp = max(0.0, 1.0 - phase_t / 0.16)
+    noise = rng.uniform(-1.0, 1.0)
+    tone = math.sin(2 * math.pi * 190 * phase_t) * 0.28
+    return (noise * 0.72 + tone) * amp
+
+
+def _hat(phase_t: float, rng: random.Random) -> float:
+    amp = max(0.0, 1.0 - phase_t / 0.06)
+    noise = rng.uniform(-1.0, 1.0)
+    return noise * amp
+
+
+def synth_loop_with_percussion(
+    path: Path,
+    melody: list[float | None],
+    bass: list[float | None],
+    drum_pattern: list[str],
+    *,
+    bpm: int,
+    loops: int = 4,
+    sample_rate: int = 44100,
+) -> None:
+    step_s = 60.0 / bpm / 2.0  # 8th-note grid
+    phrase_len = len(melody)
+    total_steps = phrase_len * loops
+    total_samples = int(total_steps * step_s * sample_rate)
+    rng = random.Random(1337)
+
+    kick_starts: list[float] = []
+    snare_starts: list[float] = []
+    hat_starts: list[float] = []
+
+    for step in range(total_steps):
+        t0 = step * step_s
+        drum = drum_pattern[step % len(drum_pattern)]
+        if "k" in drum:
+            kick_starts.append(t0)
+        if "s" in drum:
+            snare_starts.append(t0)
+        if "h" in drum:
+            hat_starts.append(t0)
+
+    samples = bytearray()
+    for i in range(total_samples):
+        t = i / sample_rate
+        step_index = int(t / step_s) % phrase_len
+        step_t = t % step_s
+
+        m = melody[step_index]
+        b = bass[step_index]
+
+        melodic = 0.0
+        if m:
+            env = _envelope(step_t, 0.005, 0.08, 0.58, 0.04, step_s)
+            melodic += (0.72 * math.sin(2 * math.pi * m * t) + 0.28 * math.sin(2 * math.pi * m * 2 * t)) * env
+        if b:
+            envb = _envelope(step_t, 0.005, 0.05, 0.72, 0.03, step_s)
+            melodic += (0.82 * math.sin(2 * math.pi * b * t) + 0.18 * math.sin(2 * math.pi * b * 0.5 * t)) * envb * 0.75
+
+        drums = 0.0
+        for st in kick_starts:
+            dt = t - st
+            if 0 <= dt <= 0.2:
+                drums += _kick(dt) * 0.65
+        for st in snare_starts:
+            dt = t - st
+            if 0 <= dt <= 0.17:
+                drums += _snare(dt, rng) * 0.40
+        for st in hat_starts:
+            dt = t - st
+            if 0 <= dt <= 0.07:
+                drums += _hat(dt, rng) * 0.20
+
+        s = melodic * 0.42 + drums * 0.58
+        sample = int(max(-1.0, min(1.0, s)) * 32767)
+        samples += struct.pack("<h", sample)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(bytes(samples))
+
+
 def generate_audio() -> None:
     synth_tone(AUDIO_DIR / "jump.wav", [(660, 0.10), (880, 0.12), (1100, 0.12)], bpm=240)
     synth_tone(AUDIO_DIR / "land.wav", [(180, 0.18), (140, 0.16)], bpm=170)
     synth_tone(AUDIO_DIR / "death.wav", [(280, 0.20), (220, 0.18), (160, 0.25), (110, 0.30)], bpm=180)
     synth_tone(AUDIO_DIR / "treasure.wav", [(900, 0.08), (1200, 0.08), (1500, 0.10)], bpm=240)
 
-    surface_phrase = [
-        (523.25, 0.5), (659.25, 0.5), (783.99, 0.5), (659.25, 0.5),
-        (587.33, 0.5), (523.25, 0.5), (659.25, 0.5), (493.88, 0.5),
+    surface_melody = [
+        523.25, None, 659.25, 783.99, 659.25, None, 587.33, 523.25,
+        659.25, None, 783.99, 880.00, 783.99, 659.25, 587.33, None,
     ]
-    cave_phrase = [
-        (392.00, 0.5), (493.88, 0.5), (587.33, 0.5), (493.88, 0.5),
-        (440.00, 0.5), (392.00, 0.5), (493.88, 0.5), (369.99, 0.5),
+    surface_bass = [
+        130.81, None, None, 164.81, None, 196.00, None, 164.81,
+        146.83, None, None, 185.00, None, 220.00, None, 185.00,
     ]
-    synth_tone(AUDIO_DIR / "music_surface.wav", surface_phrase * 4, bpm=128)
-    synth_tone(AUDIO_DIR / "music_cave.wav", cave_phrase * 4, bpm=116)
+    surface_drums = ["kh", "h", "h", "sh", "kh", "h", "h", "sh", "kh", "h", "h", "sh", "kh", "h", "h", "sh"]
+
+    cave_melody = [
+        392.00, None, 493.88, 587.33, 523.25, None, 493.88, 440.00,
+        523.25, None, 587.33, 659.25, 587.33, 523.25, 493.88, None,
+    ]
+    cave_bass = [
+        98.00, None, None, 123.47, None, 146.83, None, 123.47,
+        110.00, None, None, 138.59, None, 164.81, None, 146.83,
+    ]
+    cave_drums = ["kh", "", "h", "sh", "kh", "h", "", "sh", "kh", "", "h", "sh", "kh", "h", "", "sh"]
+
+    synth_loop_with_percussion(
+        AUDIO_DIR / "music_surface.wav",
+        surface_melody,
+        surface_bass,
+        surface_drums,
+        bpm=126,
+        loops=4,
+    )
+    synth_loop_with_percussion(
+        AUDIO_DIR / "music_cave.wav",
+        cave_melody,
+        cave_bass,
+        cave_drums,
+        bpm=114,
+        loops=4,
+    )
 
 
 def main() -> int:
