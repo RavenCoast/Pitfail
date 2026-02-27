@@ -8,6 +8,11 @@ const screenNameEl = document.getElementById("screen-name");
 const splash = document.getElementById("splash");
 const startButton = document.getElementById("start-button");
 const buildMetaEl = document.getElementById("build-meta");
+const playModeSelect = document.getElementById("play-mode");
+const autoReportEl = document.getElementById("auto-report");
+const reportTextEl = document.getElementById("report-text");
+const copyReportButton = document.getElementById("copy-report");
+const closeReportButton = document.getElementById("close-report");
 
 const BUILD_INFO = {
   number: "B-2026.02.26-02",
@@ -116,7 +121,103 @@ const gameState = {
     animTick: 0,
     justDied: false,
   },
+  mode: "human",
+  auto: {
+    active: false,
+    startedAt: 0,
+    deadlineAt: 0,
+    startScore: 0,
+    startingLives: 0,
+    deaths: 0,
+    jumps: 0,
+    whips: 0,
+    screenChanges: 0,
+    reportShown: false,
+  },
 };
+
+function resetAutoStats() {
+  gameState.auto.active = false;
+  gameState.auto.startedAt = 0;
+  gameState.auto.deadlineAt = 0;
+  gameState.auto.startScore = gameState.score;
+  gameState.auto.startingLives = gameState.lives;
+  gameState.auto.deaths = 0;
+  gameState.auto.jumps = 0;
+  gameState.auto.whips = 0;
+  gameState.auto.screenChanges = 0;
+  gameState.auto.reportShown = false;
+}
+
+function clearReportUI() {
+  if (autoReportEl) autoReportEl.hidden = true;
+  if (reportTextEl) reportTextEl.value = "";
+  if (copyReportButton) copyReportButton.textContent = "Copy Report + Return";
+}
+
+function formatAutoReport() {
+  const elapsedMs = Math.max(0, performance.now() - gameState.auto.startedAt);
+  const elapsedSec = (elapsedMs / 1000).toFixed(1);
+  const scoreDelta = gameState.score - gameState.auto.startScore;
+  const livesLost = Math.max(0, gameState.auto.startingLives - gameState.lives);
+  return [
+    "Pitfail Auto-Playtest Report",
+    `Build: ${BUILD_INFO.number} (${BUILD_INFO.timestampUtc})`,
+    `Duration (s): ${elapsedSec}`,
+    `Score delta: ${scoreDelta}`,
+    `Screens traversed: ${gameState.auto.screenChanges}`,
+    `Deaths: ${gameState.auto.deaths}`,
+    `Lives lost: ${livesLost}`,
+    `Jumps: ${gameState.auto.jumps}`,
+    `Whips: ${gameState.auto.whips}`,
+    `Final position: screen=${gameState.screenIndex} x=${Math.round(gameState.player.x)} y=${Math.round(gameState.player.y)}`,
+    "Notes: Auto mode favors forward movement, hazard jumps, and opportunistic whip usage.",
+  ].join("\n");
+}
+
+function showAutoReport() {
+  if (!autoReportEl || !reportTextEl || gameState.auto.reportShown) return;
+  gameState.auto.reportShown = true;
+  reportTextEl.value = formatAutoReport();
+  autoReportEl.hidden = false;
+  gameState.started = false;
+  splash.classList.add("active");
+}
+
+function applyAutoPilot() {
+  if (!gameState.auto.active || gameState.respawnPending) return;
+  keys.ArrowLeft = false;
+  keys.ArrowRight = true;
+  keys.ArrowUp = false;
+  keys.ArrowDown = false;
+
+  const player = gameState.player;
+  const screen = currentScreen();
+  const closeHazard = (screen.obstacles || []).find((o) => {
+    if (!["gap", "quicksand", "river", "spikes", "stalagmite"].includes(o.type)) return false;
+    const ahead = o.x - (player.x + player.w);
+    return ahead > -24 && ahead < 54;
+  });
+  const nearbyAnimal = (screen.animals || []).some((a) => {
+    const dx = a.x - player.x;
+    const dy = Math.abs(a.y - player.y);
+    return dx > -30 && dx < 80 && dy < 42;
+  });
+
+  const shouldJump = Boolean(closeHazard && player.onGround);
+  const shouldWhip = Boolean(nearbyAnimal);
+  if (shouldJump && !keys.Space) gameState.auto.jumps += 1;
+  if (shouldWhip && !keys.KeyX) gameState.auto.whips += 1;
+  keys.Space = shouldJump;
+  keys.KeyX = shouldWhip;
+
+  if (performance.now() >= gameState.auto.deadlineAt) {
+    gameState.auto.active = false;
+    keys.Space = false;
+    keys.KeyX = false;
+    showAutoReport();
+  }
+}
 
 function mulberry32(seed) {
   let t = seed >>> 0;
@@ -632,6 +733,7 @@ function loseLife(reason) {
   gameState.deathMessage = `You were defeated by ${reason}.`;
   gameState.deathMessageUntil = performance.now() + 5000;
   gameState.player.justDied = true;
+  if (gameState.auto.active) gameState.auto.deaths += 1;
   gameState.respawnPending = true;
   gameState.respawnAt = performance.now() + 2000;
   synth.playDeath();
@@ -697,6 +799,7 @@ function animalBlockedByObstacle(screen, animal, nextX) {
 }
 
 function moveToScreen(direction) {
+  if (gameState.auto.active) gameState.auto.screenChanges += 1;
   if (direction > 0) gameState.screenIndex = (gameState.screenIndex + 1) % screens.length;
   else gameState.screenIndex = (gameState.screenIndex - 1 + screens.length) % screens.length;
   gameState.score += 100;
@@ -1100,6 +1203,7 @@ function drawTreasureBursts() {
 }
 
 function update() {
+  applyAutoPilot();
   const p = gameState.player;
   const screen = currentScreen();
 
@@ -1441,6 +1545,9 @@ function loop() {
 
 async function startGame() {
   await fileAudio.unlock();
+  gameState.mode = playModeSelect?.value === "auto" ? "auto" : "human";
+  clearReportUI();
+  resetAutoStats();
   gameState.started = true;
   splash.classList.remove("active");
   resetPlayerOnScreen();
@@ -1450,6 +1557,11 @@ async function startGame() {
     gameState.musicStarted = true;
   } else {
     synth.setTheme(themeKeyForCurrentScreen());
+  }
+  if (gameState.mode === "auto") {
+    gameState.auto.active = true;
+    gameState.auto.startedAt = performance.now();
+    gameState.auto.deadlineAt = gameState.auto.startedAt + 30000;
   }
   synth.beep(520, 0.1, "square", 0.1);
 }
@@ -1469,6 +1581,35 @@ window.addEventListener("keyup", (event) => {
 });
 
 startButton.addEventListener("click", startGame);
+
+if (copyReportButton) {
+  copyReportButton.addEventListener("click", async () => {
+    const report = reportTextEl?.value || "";
+    if (!report) return;
+    try {
+      await navigator.clipboard.writeText(report);
+      copyReportButton.textContent = "Copied! Return";
+    } catch (_) {
+      copyReportButton.textContent = "Copy failed";
+    }
+    gameState.started = false;
+    splash.classList.add("active");
+  });
+}
+
+if (closeReportButton) {
+  closeReportButton.addEventListener("click", () => {
+    gameState.started = false;
+    splash.classList.add("active");
+    if (autoReportEl) autoReportEl.hidden = true;
+  });
+}
+
+if (playModeSelect) {
+  playModeSelect.addEventListener("change", () => {
+    if (playModeSelect.value !== "auto") clearReportUI();
+  });
+}
 
 if (buildMetaEl) buildMetaEl.textContent = `Build ${BUILD_INFO.number} • ${BUILD_INFO.timestampUtc}`;
 
