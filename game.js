@@ -652,8 +652,30 @@ function intersects(a, b) {
 }
 
 
+function riverSliceAtY(obs, y) {
+  const topW = obs.topW || Math.floor(obs.w * 0.46);
+  const t = Math.max(0, Math.min(1, (y - obs.y) / Math.max(1, obs.h)));
+  const width = topW + (obs.w - topW) * t;
+  const left = obs.x + (obs.w - width) / 2;
+  return { left, width };
+}
+
+function riverFatalAtPoint(obs, x, y) {
+  // Only lethal close to the ground plane where the player can wade in too far.
+  if (y < obs.y + obs.h - 88) return false;
+  const slice = riverSliceAtY(obs, y);
+  const inset = 20;
+  return x >= slice.left + inset && x <= slice.left + slice.width - inset;
+}
+
+function obstacleGroundCutout(obs) {
+  if (obs.type !== "river") return { x: obs.x, w: obs.w };
+  const inset = 24;
+  return { x: obs.x + inset, w: Math.max(0, obs.w - inset * 2) };
+}
+
 function obstacleFatalZone(obs) {
-  if (obs.type === "river") return { x: obs.x, y: obs.y + 120, w: obs.w, h: Math.max(0, obs.h - 120) };
+  if (obs.type === "river") return null;
   if (["quicksand", "gap", "rockPit", "spikes", "stalagmite"].includes(obs.type)) return obs;
   return null;
 }
@@ -883,7 +905,10 @@ function resolvePlatforms(screen) {
   const wasOnGround = p.onGround;
   p.onGround = false;
 
-  if (!p.climbing) p.vy += WORLD.gravity;
+  if (!p.climbing) {
+    if (wasOnGround && p.vy >= 0 && !keys.Space) p.vy = 0;
+    else p.vy += WORLD.gravity;
+  }
   const impactVy = p.vy;
   p.x += p.vx;
   p.y += p.vy;
@@ -906,14 +931,15 @@ function resolvePlatforms(screen) {
 
     for (const obs of screen.obstacles || []) {
       if (obs.type === "gap" || obs.type === "quicksand" || obs.type === "river" || obs.type === "rockPit") {
+        const cut = obstacleGroundCutout(obs);
         const next = [];
         for (const seg of segments) {
-          if (obs.x >= seg.end || obs.x + obs.w <= seg.start) {
+          if (cut.x >= seg.end || cut.x + cut.w <= seg.start) {
             next.push(seg);
             continue;
           }
-          if (obs.x > seg.start) next.push({ start: seg.start, end: obs.x });
-          if (obs.x + obs.w < seg.end) next.push({ start: obs.x + obs.w, end: seg.end });
+          if (cut.x > seg.start) next.push({ start: seg.start, end: cut.x });
+          if (cut.x + cut.w < seg.end) next.push({ start: cut.x + cut.w, end: seg.end });
         }
         segments = next;
       }
@@ -967,6 +993,15 @@ function resolvePlatforms(screen) {
   const hazardHitbox = { x: p.x + p.w * 0.32, y: p.y + 4, w: p.w * 0.36, h: p.h - 4 };
 
   for (const obs of screen.obstacles || []) {
+    if (obs.type === "river") {
+      const footX = p.x + p.w * 0.5;
+      const footY = p.y + p.h - 2;
+      if (riverFatalAtPoint(obs, footX, footY)) {
+        loseLife(obstacleLabel(obs.type));
+        return;
+      }
+      continue;
+    }
     const fatalZone = obstacleFatalZone(obs);
     if (fatalZone && intersects(hazardHitbox, fatalZone)) {
       loseLife(obstacleLabel(obs.type));
@@ -1173,9 +1208,22 @@ function drawObstacles(screen) {
         break;
       }
       case "gap":
-      case "rockPit":
-        drawPixelRect(obs.x, obs.y, obs.w, obs.h, "#111");
+      case "rockPit": {
+        const depth = (obs.type === "rockPit" && gameState.underground)
+          ? (WORLD.height - obs.y)
+          : obs.h;
+        const topW = Math.max(18, Math.floor(obs.w * 0.72));
+        const topX = obs.x + Math.floor((obs.w - topW) / 2);
+        ctx.fillStyle = "#111";
+        ctx.beginPath();
+        ctx.moveTo(topX, obs.y);
+        ctx.lineTo(topX + topW, obs.y);
+        ctx.lineTo(obs.x + obs.w, obs.y + depth);
+        ctx.lineTo(obs.x, obs.y + depth);
+        ctx.closePath();
+        ctx.fill();
         break;
+      }
       case "fallenTree":
         drawPixelRect(obs.x, obs.y, obs.w, obs.h, "#8f5f2b");
         drawPixelRect(obs.x + 20, obs.y + 8, obs.w - 40, 8, "#a26d34");
