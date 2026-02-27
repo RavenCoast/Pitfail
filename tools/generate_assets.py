@@ -78,8 +78,10 @@ def _draw_frame_right(
 
     _rect(px, canvas_w, ox, 0, 16, 16, transparent)
 
-    # Head/profile facing right.
+    # Head/profile facing right + fedora.
     _rect(px, canvas_w, ox + 9, 2, 4, 3, skin)
+    _rect(px, canvas_w, ox + 8, 0, 6, 2, (70, 44, 28, 255))
+    _rect(px, canvas_w, ox + 7, 2, 8, 1, (30, 20, 14, 255))
     _put(px, canvas_w, ox + 13, 3, outline)  # eye
     _put(px, canvas_w, ox + 12, 4, outline)  # nose/chin hint
 
@@ -307,14 +309,14 @@ def generate_audio() -> None:
     surface_drums = ["kh", "h", "h", "sh", "kh", "h", "h", "sh", "kh", "h", "h", "sh", "kh", "h", "h", "sh"]
 
     cave_melody = [
-        392.00, None, 493.88, 587.33, 523.25, None, 493.88, 440.00,
-        523.25, None, 587.33, 659.25, 587.33, 523.25, 493.88, None,
+        311.13, None, 369.99, 392.00, 349.23, None, 329.63, 311.13,
+        293.66, None, 349.23, 392.00, 369.99, 329.63, 311.13, None,
     ]
     cave_bass = [
-        98.00, None, None, 123.47, None, 146.83, None, 123.47,
-        110.00, None, None, 138.59, None, 164.81, None, 146.83,
+        77.78, None, None, 92.50, None, 98.00, None, 92.50,
+        73.42, None, None, 82.41, None, 87.31, None, 82.41,
     ]
-    cave_drums = ["kh", "", "h", "sh", "kh", "h", "", "sh", "kh", "", "h", "sh", "kh", "h", "", "sh"]
+    cave_drums = ["k", "h", "", "sh", "k", "h", "", "sh", "k", "h", "", "sh", "k", "h", "", "sh"]
 
     synth_loop_with_percussion(
         AUDIO_DIR / "music_surface.wav",
@@ -329,7 +331,7 @@ def generate_audio() -> None:
         cave_melody,
         cave_bass,
         cave_drums,
-        bpm=114,
+        bpm=102,
         loops=4,
     )
 
