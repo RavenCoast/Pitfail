@@ -187,21 +187,23 @@ function pickSafeX(rand, w, water = null, min = 40, max = WORLD.width - 40, gap 
 function rectGapSeparated(a, b, gap = ELEMENT_BUFFER) {
   return (a.x + a.w + gap <= b.x) || (b.x + b.w + gap <= a.x);
 }
-function rectsOverlap(a, b) {
-  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+function rectsNear(a, b, gap = ELEMENT_BUFFER) {
+  const expanded = { x: b.x - gap, y: b.y - gap, w: b.w + gap * 2, h: b.h + gap * 2 };
+  return rectsOverlap(a, expanded);
 }
 
-function overlapsBlockingElements(rect, obstacles, platforms = [], ladder = null, extra = []) {
+function overlapsBlockingElements(rect, obstacles, platforms = [], ladder = null, extra = [], gap = 0) {
   const blocking = new Set(["gap", "rockPit", "quicksand", "river", "spikes", "stalagmite", "fallenTree"]);
   for (const o of obstacles || []) {
-    if (blocking.has(o.type) && rectsOverlap(rect, o)) return true;
+    if (!blocking.has(o.type)) continue;
+    if ((gap > 0 && rectsNear(rect, o, gap)) || rectsOverlap(rect, o)) return true;
   }
   for (const p of platforms || []) {
-    if (rectsOverlap(rect, p)) return true;
+    if ((gap > 0 && rectsNear(rect, p, gap)) || rectsOverlap(rect, p)) return true;
   }
-  if (ladder && rectsOverlap(rect, ladder)) return true;
+  if (ladder && ((gap > 0 && rectsNear(rect, ladder, gap)) || rectsOverlap(rect, ladder))) return true;
   for (const e of extra || []) {
-    if (e && rectsOverlap(rect, e)) return true;
+    if (e && ((gap > 0 && rectsNear(rect, e, gap)) || rectsOverlap(rect, e))) return true;
   }
   return false;
 }
@@ -220,13 +222,16 @@ function generateScreens(seed = 1337, count = 8) {
     const waterHasLogs = forceRiver ? rand() > 0.32 : false;
 
     const obstacles = [];
-    const hazardChoices = ["quicksand", "gap", "fallenTree"];
+    const hazardChoices = ["quicksand", "gap"];
     if (forceRiver) {
       const riverW = Math.max(Math.floor(WORLD.width / 3), 340 + Math.floor(rand() * 140));
       const riverX = Math.floor(120 + rand() * (WORLD.width - riverW - 240));
       obstacles.push({ type: "river", x: riverX, y: 420, w: riverW, h: 84 });
     }
     const water = obstacles.find((o) => o.type === "river") || null;
+
+    const ladder = hasLadder ? { x: ladderX, y: 250, w: 42, h: 290 } : null;
+    const ladderSafe = ladder && water && overlapsWater(ladder, water) ? { ...ladder, x: water.x < WORLD.width / 2 ? 862 : 56 } : ladder;
 
     const extraCount = 1 + Math.floor(rand() * 2);
     for (let k = 0; k < extraCount; k++) {
@@ -237,7 +242,8 @@ function generateScreens(seed = 1337, count = 8) {
       const x = pickSafeX(rand, w, water, 80, WORLD.width - 80, ELEMENT_BUFFER);
       const hazard = { type, x, y, w, h };
       const tooClose = obstacles.some((o) => o.type !== "river" && !rectGapSeparated(hazard, o, ELEMENT_BUFFER));
-      if ((!water || !overlapsWater(hazard, water)) && !tooClose) obstacles.push(hazard);
+      const nearLadder = ladderSafe && rectsNear(hazard, ladderSafe, ELEMENT_BUFFER);
+      if ((!water || !overlapsWater(hazard, water)) && !tooClose && !nearLadder) obstacles.push(hazard);
     }
 
     // Final guardrail: no non-log element may overlap water bounds.
@@ -260,7 +266,7 @@ function generateScreens(seed = 1337, count = 8) {
 
     let platforms = makePlatforms(rand, 3 + Math.floor(rand() * 2), [338, 300, 338, 376, 312], water);
     // If water has logs, remove any platform above/over water to keep water-log hazards primary.
-    if (water && movingLogs) platforms = platforms.filter((pl) => !overlapsWater(pl, water));
+    if (water && movingLogs) platforms = platforms.filter((pl) => (pl.x + pl.w <= water.x) || (pl.x >= water.x + water.w));
     // Water-only encounter (no logs) can use platforms over water, but ensure left/right anchors are jumpable.
     if (water && !movingLogs && platforms.length >= 2) {
       const sorted = [...platforms].sort((a, b) => a.x - b.x);
@@ -269,16 +275,13 @@ function generateScreens(seed = 1337, count = 8) {
       sorted[sorted.length - 1].y = Math.max(sorted[sorted.length - 1].y, minJumpableY);
     }
 
-    const ladder = hasLadder ? { x: ladderX, y: 250, w: 42, h: 290 } : null;
-    const ladderSafe = ladder && water && overlapsWater(ladder, water) ? { ...ladder, x: water.x < WORLD.width / 2 ? 862 : 56 } : ladder;
-
     let treasure = null;
     if (hasTreasure) {
       const tw = 28; const th = 24;
       for (let attempt = 0; attempt < 24; attempt++) {
         const tx = pickSafeX(rand, tw, water, 70, WORLD.width - 70, ELEMENT_BUFFER);
         const candidate = { type: rand() > 0.5 ? "gold" : "silver", x: tx, y: 430, w: tw, h: th, value: rand() > 0.5 ? 100 : 50, collected: false };
-        if (!overlapsBlockingElements(candidate, obstacles, platforms, ladderSafe)) {
+        if (!overlapsBlockingElements(candidate, obstacles, platforms, ladderSafe, [], ELEMENT_BUFFER)) {
           treasure = candidate;
           break;
         }
@@ -297,7 +300,7 @@ function generateScreens(seed = 1337, count = 8) {
       for (let attempt = 0; attempt < 24; attempt++) {
         const x = pickSafeX(rand, template.w, water, minX, maxX, ELEMENT_BUFFER);
         const candidate = { x, y: template.y, w: template.w, h: template.h };
-        if (!overlapsBlockingElements(candidate, obstacles, platforms, ladderSafe, treasure ? [treasure] : [])) {
+        if (!overlapsBlockingElements(candidate, obstacles, platforms, ladderSafe, treasure ? [treasure] : [], ELEMENT_BUFFER)) {
           animals.push({ x, minX: Math.max(20, minX), maxX: Math.min(WORLD.width - 20, maxX), dir: 1, phase: 0, ...template });
           break;
         }
@@ -336,12 +339,12 @@ function generateScreens(seed = 1337, count = 8) {
             { type: "lizard", x: 640, y: 440, w: 56, h: 20, minX: 540, maxX: 820, speed: 1.3, dir: 1, phase: 0 },
           ]);
           const probe = { x: t.x, y: t.y, w: t.w, h: t.h };
-          return overlapsBlockingElements(probe, caveObs, [], ladderSafe ? { x: ladderSafe.x, y: 250, w: 42, h: 290 } : null) ? [] : [t];
+          return overlapsBlockingElements(probe, caveObs, [], ladderSafe ? { x: ladderSafe.x, y: 250, w: 42, h: 290 } : null, [], ELEMENT_BUFFER) ? [] : [t];
         })(),
         treasure: (() => {
           if (rand() <= 0.5) return null;
           const t = { type: "gold", x: 590, y: 300, w: 28, h: 24, value: 100, collected: false };
-          return overlapsBlockingElements(t, caveObs) ? null : t;
+          return overlapsBlockingElements(t, caveObs, [], null, [], ELEMENT_BUFFER) ? null : t;
         })(),
       },
     };
