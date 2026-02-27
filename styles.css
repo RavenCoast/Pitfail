@@ -122,3 +122,59 @@ body {
   font-size: 0.82rem;
   line-height: 1.35;
 }
+
+
+.mode-row {
+  display: inline-flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 8px;
+  color: #d9e4ff;
+}
+
+#play-mode {
+  font: inherit;
+  background: #12224f;
+  color: #e7efff;
+  border: 2px solid #5f95ff;
+  padding: 4px 8px;
+}
+
+.auto-report {
+  margin-top: 14px;
+  text-align: left;
+  border: 2px solid #5f95ff;
+  background: #13214a;
+  padding: 10px;
+}
+
+.auto-report h3 {
+  margin: 0 0 6px;
+  color: var(--gold);
+}
+
+#report-text {
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  background: #0c1738;
+  color: #d8e8ff;
+  border: 2px solid #4669bd;
+  font: 12px/1.4 "Courier New", monospace;
+  padding: 8px;
+}
+
+.report-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+}
+
+.report-actions button {
+  background: #2b4ea7;
+  color: white;
+  border: 2px solid #9ec0ff;
+  padding: 8px 10px;
+  font: inherit;
+  cursor: pointer;
+}
