@@ -79,7 +79,7 @@ class FileAudioManager {
 const fileAudio = new FileAudioManager();
 
 const WORLD = { width: canvas.width, height: canvas.height, gravity: 0.62 };
-const keys = { ArrowLeft: false, ArrowRight: false, ArrowUp: false, ArrowDown: false, Space: false };
+const keys = { ArrowLeft: false, ArrowRight: false, ArrowUp: false, ArrowDown: false, Space: false, KeyX: false };
 
 const gameState = {
   score: 0,
@@ -94,6 +94,8 @@ const gameState = {
   screenTransitionLockUntil: 0,
   respawnPending: false,
   respawnAt: 0,
+  lastEntrySide: 1,
+  whip: { active: false, phase: 0, cooldownUntil: 0 },
   player: {
     x: 95,
     y: 420,
@@ -111,99 +113,122 @@ const gameState = {
   },
 };
 
-const screens = [
-  {
-    name: "Jungle Trail",
-    spawn: { x: 90, y: 420 },
-    groundY: 470,
-    foliage: true,
-    obstacles: [{ type: "quicksand", x: 336, y: 450, w: 72, h: 20 }],
-    treasure: { type: "silver", x: 620, y: 434, w: 26, h: 22, value: 50, collected: false },
-    animals: [{ type: "snake", x: 640, y: 438, w: 52, h: 24, minX: 620, maxX: 760, speed: 1.1, dir: 1, phase: 0 }],
-    ladder: { x: 760, y: 250, w: 42, h: 290 },
-    underground: {
-      name: "Root Cavern",
-      spawn: { x: 760, y: 420 },
+function mulberry32(seed) {
+  let t = seed >>> 0;
+  return function rand() {
+    t += 0x6D2B79F5;
+    let v = Math.imul(t ^ (t >>> 15), 1 | t);
+    v ^= v + Math.imul(v ^ (v >>> 7), 61 | v);
+    return ((v ^ (v >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function pick(rand, list) { return list[Math.floor(rand() * list.length)]; }
+
+function generateName(rand, theme, content) {
+  const a = pick(rand, ["Sun", "Moss", "Howler", "Ember", "Jade", "Thorn", "Gloom", "Echo"]);
+  const b = pick(rand, ["Run", "Reach", "Hollow", "Span", "Pass", "Crest", "Drop", "Basin"]);
+  const c = content.includes("river") ? "Tide" : content.includes("spikes") ? "Fang" : theme === "cave" ? "Depth" : "Trail";
+  return `${a} ${b} ${c}`;
+}
+
+function makePlatforms(rand, count, yPattern) {
+  const platforms = [];
+  const band = [300, 338, 376, 414];
+  let x = 90 + Math.floor(rand() * 40);
+  for (let i = 0; i < count; i++) {
+    const w = 90 + Math.floor(rand() * 56);
+    const y = yPattern[i % yPattern.length] ?? band[i % band.length];
+    platforms.push({ x, y, w, h: 18 });
+    x += w + 70 + Math.floor(rand() * 34);
+    if (x > WORLD.width - 170) x = 110 + (i * 60);
+  }
+  // prevent overlap hard clamp
+  platforms.sort((a, b) => a.x - b.x);
+  for (let i = 1; i < platforms.length; i++) {
+    const prev = platforms[i - 1];
+    const cur = platforms[i];
+    if (cur.x < prev.x + prev.w + 32) cur.x = prev.x + prev.w + 32;
+  }
+  return platforms.filter((p) => p.x + p.w < WORLD.width - 30);
+}
+
+function generateScreens(seed = 1337, count = 8) {
+  const rand = mulberry32(seed);
+  const surface = [];
+
+  for (let i = 0; i < count; i++) {
+    const ladderX = rand() < 0.5 ? 56 : 862;
+    const hasLadder = rand() > 0.18;
+    const hasAnimal = rand() > 0.25;
+    const hasTreasure = rand() > 0.35;
+    const obsTypes = ["quicksand", "gap", "fallenTree", "river"];
+    const cObs = 1 + Math.floor(rand() * 2);
+    const obstacles = [];
+    for (let k = 0; k < cObs; k++) {
+      const type = pick(rand, obsTypes);
+      const x = 180 + Math.floor(rand() * 540);
+      const w = type === "fallenTree" ? 150 : type === "river" ? 220 : 72 + Math.floor(rand() * 40);
+      const y = type === "fallenTree" ? 430 : type === "river" ? 420 : 450;
+      const h = type === "river" ? 84 : type === "fallenTree" ? 35 : type === "gap" ? 70 : 20;
+      obstacles.push({ type, x, y, w, h });
+    }
+
+    const hasLogs = obstacles.some((o) => o.type === "river");
+    const movingLogs = hasLogs ? [
+      { x: 210, y: 432, w: 140, h: 20, speed: 1.15 + rand() * 0.4, minX: 180, maxX: 470 },
+      { x: 430, y: 446, w: 150, h: 20, speed: -(1.05 + rand() * 0.45), minX: 340, maxX: 670 },
+      { x: 640, y: 428, w: 145, h: 20, speed: 1.1 + rand() * 0.45, minX: 520, maxX: 820 },
+    ] : undefined;
+
+    const platforms = makePlatforms(rand, 2 + Math.floor(rand() * 2), [338, 300, 338, 376]);
+
+    const animal = hasAnimal ? [pick(rand, [
+      { type: "snake", x: 740, y: 438, w: 52, h: 24, minX: 620, maxX: 860, speed: 1.1, dir: 1, phase: 0 },
+      { type: "frog", x: 760, y: 444, w: 28, h: 22, minX: 710, maxX: 880, speed: 0.8, dir: 1, phase: 0 },
+      { type: "panther", x: 730, y: 432, w: 70, h: 30, minX: 620, maxX: 880, speed: 1.25, dir: 1, phase: 0, hp: 2 },
+    ])] : [];
+
+    const treasure = hasTreasure ? { type: rand() > 0.5 ? "gold" : "silver", x: 680, y: 430, w: 28, h: 24, value: rand() > 0.5 ? 100 : 50, collected: false } : null;
+    const content = obstacles.map((o)=>o.type);
+    const name = generateName(rand, 'surface', content);
+
+    const caveObs = [pick(rand, [
+      { type: "rockPit", x: 250, y: 452, w: 86, h: 18 },
+      { type: "spikes", x: 300, y: 445, w: 84, h: 25 },
+      { type: "stalagmite", x: 520, y: 430, w: 60, h: 40 },
+    ]), pick(rand,[{ type:"spikes",x:620,y:445,w:82,h:25},{type:"rockPit",x:450,y:452,w:80,h:18}])];
+
+    surface.push({
+      name,
+      spawn: { x: ladderX < WORLD.width / 2 ? 80 : 820, y: 420 },
       groundY: 470,
-      obstacles: [
-        { type: "rockPit", x: 228, y: 452, w: 72, h: 18 },
-        { type: "stalagmite", x: 520, y: 430, w: 60, h: 40 },
-        { type: "spikes", x: 320, y: 445, w: 70, h: 25 },
-      ],
-      platforms: [
-        { x: 120, y: 372, w: 120, h: 18 },
-        { x: 360, y: 332, w: 140, h: 18 },
-      ],
-      ladder: { x: 760, y: 250, w: 42, h: 290 },
-      animals: [{ type: "bat", x: 430, y: 250, w: 44, h: 20, minX: 380, maxX: 610, speed: 1.5, dir: 1, phase: 0 }],
-      treasure: { type: "gold", x: 370, y: 304, w: 28, h: 24, value: 100, collected: false },
-    },
-  },
-  {
-    name: "Log River",
-    spawn: { x: 72, y: 386 },
-    groundY: 470,
-    foliage: true,
-    obstacles: [{ type: "river", x: 180, y: 420, w: 560, h: 84 }],
-    movingLogs: [
-      { x: 230, y: 440, w: 140, h: 20, speed: 1.15, minX: 220, maxX: 500 },
-      { x: 430, y: 450, w: 150, h: 20, speed: -1.15, minX: 360, maxX: 620 },
-      { x: 620, y: 432, w: 150, h: 20, speed: 1.35, minX: 500, maxX: 700 },
-    ],
-    animals: [{ type: "frog", x: 770, y: 444, w: 28, h: 22, minX: 760, maxX: 860, speed: 0.8, dir: 1, phase: 0 }],
-    ladder: { x: 70, y: 250, w: 42, h: 290 },
-    underground: {
-      name: "Flooded Grotto",
-      spawn: { x: 88, y: 420 },
-      groundY: 470,
-      obstacles: [
-        { type: "spikes", x: 200, y: 445, w: 85, h: 25 },
-        { type: "rockPit", x: 420, y: 452, w: 90, h: 18 },
-      ],
-      platforms: [
-        { x: 90, y: 360, w: 96, h: 18 },
-        { x: 320, y: 330, w: 110, h: 18 },
-        { x: 560, y: 300, w: 140, h: 18 },
-      ],
-      ladder: { x: 70, y: 250, w: 42, h: 290 },
-      animals: [{ type: "lizard", x: 640, y: 440, w: 56, h: 20, minX: 560, maxX: 820, speed: 1.4, dir: 1, phase: 0 }],
-      treasure: { type: "gold", x: 594, y: 282, w: 28, h: 24, value: 100, collected: false },
-    },
-    treasure: { type: "gold", x: 770, y: 446, w: 28, h: 24, value: 100, collected: false },
-  },
-  {
-    name: "Fallen Timber",
-    spawn: { x: 84, y: 420 },
-    groundY: 470,
-    foliage: true,
-    obstacles: [
-      { type: "gap", x: 292, y: 470, w: 72, h: 70 },
-      { type: "fallenTree", x: 540, y: 430, w: 170, h: 35 },
-    ],
-    platforms: [{ x: 560, y: 392, w: 130, h: 18 }],
-    animals: [{ type: "panther", x: 740, y: 432, w: 70, h: 30, minX: 700, maxX: 850, speed: 1.4, dir: 1, phase: 0 }],
-    ladder: { x: 420, y: 250, w: 42, h: 290 },
-    treasure: null,
-    underground: {
-      name: "Rock Maze",
-      spawn: { x: 420, y: 420 },
-      groundY: 470,
-      obstacles: [
-        { type: "spikes", x: 250, y: 445, w: 100, h: 25 },
-        { type: "spikes", x: 640, y: 445, w: 72, h: 25 },
-        { type: "rockPit", x: 470, y: 452, w: 80, h: 18 },
-      ],
-      platforms: [
-        { x: 130, y: 388, w: 120, h: 18 },
-        { x: 300, y: 352, w: 120, h: 18 },
-        { x: 460, y: 312, w: 120, h: 18 },
-      ],
-      ladder: { x: 420, y: 250, w: 42, h: 290 },
-      animals: [{ type: "lizard", x: 560, y: 442, w: 54, h: 18, minX: 500, maxX: 700, speed: 1.0, dir: -1, phase: 0 }],
-      treasure: { type: "silver", x: 142, y: 370, w: 26, h: 22, value: 50, collected: false },
-    },
-  },
-];
+      foliage: true,
+      obstacles,
+      platforms,
+      movingLogs,
+      animals: animal,
+      ladder: hasLadder ? { x: ladderX, y: 250, w: 42, h: 290 } : null,
+      treasure,
+      underground: {
+        name: generateName(rand, 'cave', caveObs.map((o)=>o.type)),
+        spawn: { x: ladderX < WORLD.width / 2 ? 80 : 820, y: 420 },
+        groundY: 470,
+        obstacles: caveObs,
+        platforms: makePlatforms(rand, 3, [360, 330, 360, 300]),
+        ladder: hasLadder ? { x: ladderX, y: 250, w: 42, h: 290 } : null,
+        animals: rand() > 0.45 ? [pick(rand,[
+          { type: "bat", x: 430, y: 250, w: 44, h: 20, minX: 300, maxX: 700, speed: 1.5, dir: 1, phase: 0 },
+          { type: "lizard", x: 640, y: 440, w: 56, h: 20, minX: 540, maxX: 820, speed: 1.3, dir: 1, phase: 0 },
+        ])] : [],
+        treasure: rand() > 0.5 ? { type: "gold", x: 590, y: 300, w: 28, h: 24, value: 100, collected: false } : null,
+      },
+    });
+  }
+  return surface;
+}
+
+const screens = generateScreens();
 
 class TinySynth {
   constructor() {
@@ -435,10 +460,11 @@ function themeKeyForCurrentScreen() {
 function resetPlayerOnScreen(entryDirection = 0) {
   const screen = currentScreen();
   const p = gameState.player;
-  p.x = screen.spawn.x;
   p.y = screen.spawn.y;
-  if (entryDirection > 0) p.x = 20;
-  if (entryDirection < 0) p.x = WORLD.width - p.w - 20;
+  const side = entryDirection || gameState.lastEntrySide || 1;
+  if (side > 0) p.x = 20;
+  else p.x = WORLD.width - p.w - 20;
+  gameState.lastEntrySide = side;
   p.vx = 0;
   p.vy = 0;
   p.onGround = false;
@@ -500,7 +526,8 @@ function moveToScreen(direction) {
   const targetBase = screens[gameState.screenIndex];
   if (gameState.underground && !targetBase.underground) gameState.underground = false;
 
-  resetPlayerOnScreen(direction);
+  gameState.lastEntrySide = direction > 0 ? 1 : -1;
+  resetPlayerOnScreen(gameState.lastEntrySide);
   gameState.screenTransitionLockUntil = performance.now() + 350;
   synth.beep(640, 0.1, "square", 0.11);
   synth.beep(820, 0.08, "triangle", 0.08);
@@ -565,7 +592,8 @@ function handleLadder(screen) {
 
       if (keys.ArrowDown && p.y + p.h >= WORLD.height - 1 && screens[gameState.screenIndex].underground) {
         gameState.underground = true;
-        resetPlayerOnScreen();
+        gameState.lastEntrySide = ladder.x < WORLD.width / 2 ? 1 : -1;
+        resetPlayerOnScreen(gameState.lastEntrySide);
         synth.beep(210, 0.14, "square", 0.09);
         synth.setTheme(themeKeyForCurrentScreen());
         updateHud();
@@ -576,7 +604,8 @@ function handleLadder(screen) {
 
       if (keys.ArrowUp && p.y <= 0) {
         gameState.underground = false;
-        resetPlayerOnScreen();
+        gameState.lastEntrySide = ladder.x < WORLD.width / 2 ? 1 : -1;
+        resetPlayerOnScreen(gameState.lastEntrySide);
         synth.beep(420, 0.12, "square", 0.09);
         synth.setTheme(themeKeyForCurrentScreen());
         updateHud();
@@ -587,12 +616,17 @@ function handleLadder(screen) {
 
 function updateMovingLogs(screen) {
   if (!screen.movingLogs) return;
+  let surfacedCount = 0;
+  const now = performance.now();
+
   for (const [idx, log] of screen.movingLogs.entries()) {
     if (log.baseY === undefined) {
       log.baseY = log.y;
-      log.sinkPhase = idx * 1.7;
-      log.sinkRate = 0.032 + idx * 0.008;
-      log.sinkDepth = 26 + idx * 4;
+      log.sinkCycleMs = 4400 + idx * 550;
+      log.sinkWindowMs = 1200;
+      log.phaseOffsetMs = idx * 900;
+      log.sinkDepth = 24 + idx * 4;
+      log.warnWobble = 0;
     }
 
     log.x += log.speed;
@@ -601,17 +635,46 @@ function updateMovingLogs(screen) {
     if (log.x < minX) log.speed = Math.abs(log.speed);
     if (log.x > maxX) log.speed = -Math.abs(log.speed);
 
-    log.sinkPhase += log.sinkRate;
-    const sinkWave = Math.sin(log.sinkPhase);
-    const sinkAmount = sinkWave < -0.2 ? ((-0.2 - sinkWave) / 0.8) * log.sinkDepth : 0;
-    log.y = log.baseY + sinkAmount;
-    log.isSurfaced = sinkAmount < log.sinkDepth * 0.45;
+    const cyclePos = (now + log.phaseOffsetMs) % log.sinkCycleMs;
+    const subStart = log.sinkCycleMs - log.sinkWindowMs;
+    const warnStart = Math.max(0, subStart - 1000);
+    let sinkAmount = 0;
+    log.warnWobble = 0;
+
+    if (cyclePos >= warnStart && cyclePos < subStart) {
+      const t = (cyclePos - warnStart) / 1000;
+      log.warnWobble = Math.sin(t * Math.PI * 6) * 2.5;
+    }
+    if (cyclePos >= subStart) {
+      const t = (cyclePos - subStart) / log.sinkWindowMs;
+      sinkAmount = Math.sin(Math.min(1, t) * Math.PI) * log.sinkDepth;
+    }
+
+    log.y = log.baseY + sinkAmount + log.warnWobble;
+    log.isSurfaced = sinkAmount < log.sinkDepth * 0.52;
+    if (log.isSurfaced) surfacedCount++;
+  }
+
+  if (surfacedCount === 0 && screen.movingLogs.length) {
+    const rescue = screen.movingLogs[0];
+    rescue.y = rescue.baseY;
+    rescue.isSurfaced = true;
+    rescue.warnWobble = 0;
   }
 }
 
 function updateAnimals(screen) {
-  for (const animal of screen.animals || []) {
+  for (let i = (screen.animals || []).length - 1; i >= 0; i--) {
+    const animal = screen.animals[i];
     animal.phase = (animal.phase || 0) + 0.14;
+    if (animal.hp === undefined) animal.hp = animal.type === "panther" ? 2 : 1;
+
+    if (animal.charging) {
+      const p = gameState.player;
+      animal.dir = p.x >= animal.x ? 1 : -1;
+      animal.speed = Math.max(animal.speed || 1.2, 2.6);
+    }
+
     if (animal.minX !== undefined && animal.maxX !== undefined && animal.speed) {
       const step = animal.speed * (animal.dir || 1);
       const nextX = animal.x + step;
@@ -632,7 +695,30 @@ function updateAnimals(screen) {
         animal.dir = -1;
       }
     }
+
+    if (animal.hp <= 0) screen.animals.splice(i, 1);
   }
+}
+
+function applyWhipHit(screen) {
+  const p = gameState.player;
+  const range = 88;
+  const hit = p.facing > 0
+    ? { x: p.x + p.w - 2, y: p.y + 8, w: range, h: p.h - 10 }
+    : { x: p.x - range, y: p.y + 8, w: range, h: p.h - 10 };
+
+  for (const animal of screen.animals || []) {
+    const box = animal.type === "bat"
+      ? { x: animal.x - 10, y: animal.y - 8, w: animal.w + 20, h: animal.h + 16 }
+      : animal;
+    if (intersects(hit, box)) {
+      animal.hp = (animal.hp === undefined ? (animal.type === "panther" ? 2 : 1) : animal.hp) - 1;
+      if (animal.type === "panther" && animal.hp === 1) animal.charging = true;
+      synth.playSnare(0.08);
+      return true;
+    }
+  }
+  return false;
 }
 
 function resolvePlatforms(screen) {
@@ -791,7 +877,7 @@ function update() {
 
   if (gameState.respawnPending) {
     if (performance.now() >= gameState.respawnAt) {
-      resetPlayerOnScreen();
+      resetPlayerOnScreen(gameState.lastEntrySide);
       gameState.respawnPending = false;
       gameState.deathMessageUntil = Math.max(gameState.deathMessageUntil, performance.now() + 3000);
     } else {
@@ -824,6 +910,22 @@ function update() {
 
   if (p.climbing && !keys.ArrowUp && !keys.ArrowDown) p.climbing = false;
   p.animTick += Math.abs(p.vx) > 0 ? 0.35 : 0.08;
+
+  const now = performance.now();
+  if (keys.KeyX && !gameState.whip.active && now >= gameState.whip.cooldownUntil && !gameState.respawnPending) {
+    gameState.whip.active = true;
+    gameState.whip.phase = 0;
+    gameState.whip.hitApplied = false;
+    gameState.whip.cooldownUntil = now + 520;
+  }
+  if (gameState.whip.active) {
+    gameState.whip.phase += 0.24;
+    if (!gameState.whip.hitApplied && gameState.whip.phase >= 0.38) {
+      applyWhipHit(screen);
+      gameState.whip.hitApplied = true;
+    }
+    if (gameState.whip.phase >= 1) gameState.whip.active = false;
+  }
 
   resolvePlatforms(screen);
   collectTreasure(screen);
@@ -968,8 +1070,21 @@ function drawPlayer() {
   const scale = 6;
   const spriteW = PLAYER_FILM.frameW * scale;
   const spriteH = PLAYER_FILM.frameH * scale;
-  const drawX = Math.round(p.x + (p.w - spriteW) / 2);
-  const drawY = Math.round(p.y + p.h - spriteH + 10);
+  let drawX = Math.round(p.x + (p.w - spriteW) / 2);
+  let drawY = Math.round(p.y + p.h - spriteH + 10);
+
+  if (gameState.respawnPending) {
+    // Lying pose on the ground with hat on chest.
+    const bodyW = 86;
+    const bodyH = 24;
+    const bodyX = Math.round(p.x - 18);
+    const bodyY = Math.round(currentScreen().groundY - bodyH);
+    drawPixelRect(bodyX, bodyY, bodyW, bodyH, "#20b54c");
+    drawPixelRect(bodyX + (p.facing > 0 ? 54 : 20), bodyY + 4, 20, 10, "#f0d9b7");
+    drawPixelRect(bodyX + 32, bodyY + 8, 20, 6, "#5d3d20");
+    drawPixelRect(bodyX + 36, bodyY + 6, 12, 3, "#111");
+    return;
+  }
 
   if (playerFilmstrip.complete && playerFilmstrip.naturalWidth > 0) {
     ctx.imageSmoothingEnabled = false;
@@ -984,11 +1099,27 @@ function drawPlayer() {
       spriteW,
       spriteH,
     );
-    return;
+  } else {
+    drawPixelRect(drawX + 10, drawY + 8, spriteW - 20, spriteH - 8, "#20b54c");
   }
 
-  // fallback silhouette if image failed
-  drawPixelRect(drawX + 10, drawY + 8, spriteW - 20, spriteH - 8, "#20b54c");
+  // Fedora fallback/accent to guarantee hat appears even if source art differs.
+  const hatX = drawX + (p.facing > 0 ? 52 : 38);
+  drawPixelRect(hatX, drawY + 10, 18, 6, "#3c2415");
+  drawPixelRect(hatX - 4, drawY + 15, 24, 3, "#1a120d");
+
+  if (gameState.whip.active) {
+    const t = gameState.whip.phase;
+    const ext = t < 0.5 ? t / 0.5 : (1 - t) / 0.5;
+    const whipLen = 16 + ext * 84;
+    const startX = p.facing > 0 ? p.x + p.w + 2 : p.x - 2;
+    const startY = p.y + 18;
+    const dir = p.facing > 0 ? 1 : -1;
+    for (let i = 0; i < whipLen; i += 8) {
+      const wobble = Math.sin((i / 12) + t * 14) * 4;
+      drawPixelRect(startX + dir * i, startY + wobble, 6, 2, "#d8a94f");
+    }
+  }
 }
 
 function drawDeathMessage() {
