@@ -228,9 +228,10 @@ function generateScreens(seed = 1337, count = 8) {
     const obstacles = [];
     const hazardChoices = ["quicksand", "gap"];
     if (forceRiver) {
-      const riverW = Math.max(Math.floor(WORLD.width / 3), 340 + Math.floor(rand() * 140));
-      const riverX = Math.floor(120 + rand() * (WORLD.width - riverW - 240));
-      obstacles.push({ type: "river", x: riverX, y: 420, w: riverW, h: 84 });
+      const riverW = Math.max(Math.floor(WORLD.width * 0.42), Math.floor(WORLD.width / 3));
+      const riverX = Math.floor(90 + rand() * Math.max(1, WORLD.width - riverW - 180));
+      const riverTopW = Math.max(130, Math.floor(riverW * 0.46));
+      obstacles.push({ type: "river", x: riverX, y: 280, w: riverW, h: WORLD.height - 280, topW: riverTopW });
     }
     const water = obstacles.find((o) => o.type === "river") || null;
 
@@ -260,9 +261,9 @@ function generateScreens(seed = 1337, count = 8) {
 
     const movingLogs = (water && waterHasLogs) ? [0,1,2].map((idx) => {
       const w = 118 + Math.floor(rand() * 26);
-      const laneY = [430, 444, 428][idx];
-      const minX = water.x + 8;
-      const maxX = water.x + water.w - w - 8;
+      const laneY = [390, 432, 470][idx];
+      const minX = water.x + 10;
+      const maxX = water.x + water.w - w - 10;
       const startX = Math.floor(minX + rand() * Math.max(1, (maxX - minX)));
       const speedBase = 1.0 + rand() * 0.5;
       return { x: startX, y: laneY, w, h: 20, speed: idx % 2 ? -speedBase : speedBase, minX, maxX };
@@ -299,8 +300,8 @@ function generateScreens(seed = 1337, count = 8) {
         { type: "frog", y: 444, w: 28, h: 22, speed: 0.8 },
         { type: "panther", y: 432, w: 70, h: 30, speed: 1.25, hp: 2 },
       ]);
-      const minX = water ? (water.x + water.w + 30 < WORLD.width - 120 ? water.x + water.w + 24 : 60) : 80;
-      const maxX = water ? (water.x - 30 > 180 ? water.x - 20 : WORLD.width - 70) : 880;
+      const minX = water ? Math.max(ELEMENT_BUFFER, (water.x + water.w + ELEMENT_BUFFER < WORLD.width - 140 ? water.x + water.w + ELEMENT_BUFFER : ELEMENT_BUFFER)) : ELEMENT_BUFFER;
+      const maxX = water ? Math.min(WORLD.width - ELEMENT_BUFFER, (water.x - ELEMENT_BUFFER > 180 ? water.x - ELEMENT_BUFFER : WORLD.width - ELEMENT_BUFFER)) : WORLD.width - ELEMENT_BUFFER;
       for (let attempt = 0; attempt < 24; attempt++) {
         const x = pickSafeX(rand, template.w, water, minX, maxX, ELEMENT_BUFFER);
         const candidate = { x, y: template.y, w: template.w, h: template.h };
@@ -652,7 +653,7 @@ function intersects(a, b) {
 
 
 function obstacleFatalZone(obs) {
-  if (obs.type === "river") return { x: obs.x, y: obs.y + 46, w: obs.w, h: Math.max(0, obs.h - 46) };
+  if (obs.type === "river") return { x: obs.x, y: obs.y + 120, w: obs.w, h: Math.max(0, obs.h - 120) };
   if (["quicksand", "gap", "rockPit", "spikes", "stalagmite"].includes(obs.type)) return obs;
   return null;
 }
@@ -792,12 +793,12 @@ function updateMovingLogs(screen) {
 
     const cyclePos = (now + log.phaseOffsetMs) % log.sinkCycleMs;
     const subStart = log.sinkCycleMs - log.sinkWindowMs;
-    const warnStart = Math.max(0, subStart - 1000);
+    const warnStart = Math.max(0, subStart - 2000);
     let sinkAmount = 0;
     log.warnWobble = 0;
 
     if (cyclePos >= warnStart && cyclePos < subStart) {
-      const t = (cyclePos - warnStart) / 1000;
+      const t = (cyclePos - warnStart) / 2000;
       log.warnWobble = Math.sin(t * Math.PI * 6) * 2.5;
     }
     if (cyclePos >= subStart) {
@@ -883,6 +884,7 @@ function resolvePlatforms(screen) {
   p.onGround = false;
 
   if (!p.climbing) p.vy += WORLD.gravity;
+  const impactVy = p.vy;
   p.x += p.vx;
   p.y += p.vy;
 
@@ -938,9 +940,9 @@ function resolvePlatforms(screen) {
         p.vy = 0;
         landed = true;
         if (solid.speed) p.x += solid.speed;
-        if (solid.sourceType === "platform" && solid.source) {
-          solid.source.wobbleAmp = Math.min(4.5, (solid.source.wobbleAmp || 0) + 1.8);
-          solid.source.wobbleTick = (solid.source.wobbleTick || 0) + 0.3;
+        if (!wasOnGround && impactVy > 1.2 && solid.sourceType === "platform" && solid.source) {
+          solid.source.wobbleTimeLeft = 1.0;
+          solid.source.wobblePhase = 0;
         }
       } else if (!solid.oneWay && prevTop >= solid.y + solid.h - 6 && p.vy < 0) {
         p.y = solid.y + solid.h;
@@ -1009,16 +1011,19 @@ function collectTreasure(screen) {
 }
 
 function updatePlatformWobbles(screen) {
+  const dt = 1 / 60;
   for (const platform of screen.platforms || []) {
     platform.wobbleY = platform.wobbleY || 0;
-    platform.wobbleAmp = platform.wobbleAmp || 0;
-    platform.wobbleTick = platform.wobbleTick || 0;
-    if (platform.wobbleAmp > 0.03) {
-      platform.wobbleTick += 0.48;
-      platform.wobbleY = Math.sin(platform.wobbleTick) * platform.wobbleAmp;
-      platform.wobbleAmp *= 0.86;
+    platform.wobbleTimeLeft = platform.wobbleTimeLeft || 0;
+    platform.wobblePhase = platform.wobblePhase || 0;
+
+    if (platform.wobbleTimeLeft > 0) {
+      platform.wobbleTimeLeft = Math.max(0, platform.wobbleTimeLeft - dt);
+      platform.wobblePhase += 0.72;
+      const t = platform.wobbleTimeLeft / 1.0;
+      const amp = 3.2 * t;
+      platform.wobbleY = Math.sin(platform.wobblePhase) * amp;
     } else {
-      platform.wobbleAmp = 0;
       platform.wobbleY = 0;
     }
   }
@@ -1152,10 +1157,21 @@ function drawObstacles(screen) {
         drawPixelRect(obs.x, obs.y, obs.w, obs.h, "#d0a25f");
         for (let i = 0; i < obs.w; i += 22) drawPixelRect(obs.x + i, obs.y + 10, 10, 4, "#b47a3d");
         break;
-      case "river":
-        drawPixelRect(obs.x, obs.y, obs.w, obs.h, "#2b79ee");
-        for (let i = 0; i < obs.w; i += 34) drawPixelRect(obs.x + i, obs.y + 15 + (i % 2 ? 8 : 0), 18, 3, "#7fc0ff");
+      case "river": {
+        const topW = obs.topW || Math.floor(obs.w * 0.46);
+        const topX = obs.x + Math.floor((obs.w - topW) / 2);
+        ctx.fillStyle = "#2b79ee";
+        ctx.beginPath();
+        ctx.moveTo(topX, obs.y);
+        ctx.lineTo(topX + topW, obs.y);
+        ctx.lineTo(obs.x + obs.w, obs.y + obs.h);
+        ctx.lineTo(obs.x, obs.y + obs.h);
+        ctx.closePath();
+        ctx.fill();
+        for (let i = 0; i < topW; i += 26) drawPixelRect(topX + i, obs.y + 12 + (i % 2 ? 4 : 0), 14, 3, "#7fc0ff");
+        for (let i = 0; i < obs.w; i += 34) drawPixelRect(obs.x + i, obs.y + obs.h - 36 + (i % 2 ? 6 : 0), 18, 3, "#7fc0ff");
         break;
+      }
       case "gap":
       case "rockPit":
         drawPixelRect(obs.x, obs.y, obs.w, obs.h, "#111");
@@ -1261,15 +1277,33 @@ function drawPlayer() {
   let drawY = Math.round(p.y + p.h - spriteH + 10);
 
   if (gameState.respawnPending) {
-    // Lying pose on the ground with hat on chest.
-    const bodyW = 86;
-    const bodyH = 24;
-    const bodyX = Math.round(p.x - 18);
-    const bodyY = Math.round(currentScreen().groundY - bodyH);
-    drawPixelRect(bodyX, bodyY, bodyW, bodyH, "#20b54c");
-    drawPixelRect(bodyX + (p.facing > 0 ? 54 : 20), bodyY + 4, 20, 10, "#f0d9b7");
-    drawPixelRect(bodyX + 32, bodyY + 8, 20, 6, "#5d3d20");
-    drawPixelRect(bodyX + 36, bodyY + 6, 12, 3, "#111");
+    const lieFrame = p.facing < 0 ? PLAYER_FILM.leftWalk[0] : PLAYER_FILM.rightWalk[0];
+    const centerX = Math.round(p.x + p.w / 2);
+    const centerY = Math.round(currentScreen().groundY - 20);
+
+    if (playerFilmstrip.complete && playerFilmstrip.naturalWidth > 0) {
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      ctx.rotate(Math.PI / 2);
+      ctx.drawImage(
+        playerFilmstrip,
+        lieFrame * PLAYER_FILM.frameW,
+        0,
+        PLAYER_FILM.frameW,
+        PLAYER_FILM.frameH,
+        -Math.round(spriteW / 2),
+        -Math.round(spriteH / 2),
+        spriteW,
+        spriteH,
+      );
+      ctx.restore();
+    } else {
+      drawPixelRect(centerX - 34, centerY - 10, 68, 20, "#f2f2f2");
+      drawPixelRect(centerX - 6, centerY - 11, 20, 12, "#b98d63");
+    }
+
+    drawPixelRect(centerX - 10, centerY - 4, 20, 6, "#3c2415");
+    drawPixelRect(centerX - 14, centerY + 1, 28, 3, "#1a120d");
     return;
   }
 
@@ -1291,9 +1325,9 @@ function drawPlayer() {
   }
 
   // Fedora fallback/accent to guarantee hat appears even if source art differs.
-  const hatX = drawX + (p.facing > 0 ? 52 : 38);
-  drawPixelRect(hatX, drawY + 10, 18, 6, "#3c2415");
-  drawPixelRect(hatX - 4, drawY + 15, 24, 3, "#1a120d");
+  const headCx = drawX + (p.facing > 0 ? 57 : 39);
+  drawPixelRect(headCx - 7, drawY + 10, 14, 6, "#3c2415");
+  drawPixelRect(headCx - 11, drawY + 15, 22, 3, "#1a120d");
 
   if (gameState.whip.active) {
     const t = gameState.whip.phase;

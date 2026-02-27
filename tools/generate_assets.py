@@ -70,45 +70,47 @@ def _draw_frame_right(
     back_arm: tuple[int, int, int],
 ) -> None:
     transparent = (0, 0, 0, 0)
-    tunic = (35, 181, 77, 255)
-    tunic_dark = (22, 122, 54, 255)
+    shirt = (245, 245, 245, 255)
+    shirt_shadow = (210, 210, 210, 255)
+    pants = (178, 134, 92, 255)
+    pants_shadow = (148, 108, 74, 255)
     skin = (255, 222, 178, 255)
     boot = (40, 34, 45, 255)
     outline = (14, 22, 32, 255)
 
     _rect(px, canvas_w, ox, 0, 16, 16, transparent)
 
-    # Head/profile facing right + fedora.
+    # Head/profile facing right + fedora with front/back brim extension.
     _rect(px, canvas_w, ox + 9, 2, 4, 3, skin)
     _rect(px, canvas_w, ox + 8, 0, 6, 2, (70, 44, 28, 255))
-    _rect(px, canvas_w, ox + 7, 2, 8, 1, (30, 20, 14, 255))
+    _rect(px, canvas_w, ox + 6, 2, 10, 1, (30, 20, 14, 255))
     _put(px, canvas_w, ox + 13, 3, outline)  # eye
     _put(px, canvas_w, ox + 12, 4, outline)  # nose/chin hint
 
-    # Torso and shoulder.
-    _rect(px, canvas_w, ox + 7, 5, 4, 6, tunic)
-    _rect(px, canvas_w, ox + 7, 5, 2, 6, tunic_dark)
+    # Torso and shoulder (white shirt).
+    _rect(px, canvas_w, ox + 7, 5, 4, 6, shirt)
+    _rect(px, canvas_w, ox + 7, 5, 2, 6, shirt_shadow)
 
     # Back arm (upper + forearm) bent elbow.
     bux, buy, bfx = back_arm
-    _rect(px, canvas_w, ox + bux, buy, 2, 2, tunic_dark)
-    _rect(px, canvas_w, ox + bfx, buy + 2, 2, 2, tunic_dark)
+    _rect(px, canvas_w, ox + bux, buy, 2, 2, shirt_shadow)
+    _rect(px, canvas_w, ox + bfx, buy + 2, 2, 2, shirt_shadow)
 
     # Front arm (upper + forearm) bent elbow.
     fux, fuy, ffx = front_arm
-    _rect(px, canvas_w, ox + fux, fuy, 2, 2, tunic)
-    _rect(px, canvas_w, ox + ffx, fuy + 2, 2, 2, tunic)
+    _rect(px, canvas_w, ox + fux, fuy, 2, 2, shirt)
+    _rect(px, canvas_w, ox + ffx, fuy + 2, 2, 2, shirt)
 
     # Back leg (thigh + shin) with knee bend.
     btx, bty, bsx = back_leg
-    _rect(px, canvas_w, ox + btx, bty, 2, 2, tunic_dark)
-    _rect(px, canvas_w, ox + bsx, bty + 2, 2, 2, tunic_dark)
+    _rect(px, canvas_w, ox + btx, bty, 2, 2, pants_shadow)
+    _rect(px, canvas_w, ox + bsx, bty + 2, 2, 2, pants_shadow)
     _rect(px, canvas_w, ox + bsx, bty + 4, 2, 1, boot)
 
     # Front leg (thigh + shin) with knee bend.
     ftx, fty, fsx = front_leg
-    _rect(px, canvas_w, ox + ftx, fty, 2, 2, tunic)
-    _rect(px, canvas_w, ox + fsx, fty + 2, 2, 2, tunic)
+    _rect(px, canvas_w, ox + ftx, fty, 2, 2, pants)
+    _rect(px, canvas_w, ox + fsx, fty + 2, 2, 2, pants)
     _rect(px, canvas_w, ox + fsx, fty + 4, 2, 1, boot)
 
 
