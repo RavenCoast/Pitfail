@@ -187,6 +187,10 @@ function pickSafeX(rand, w, water = null, min = 40, max = WORLD.width - 40, gap 
 function rectGapSeparated(a, b, gap = ELEMENT_BUFFER) {
   return (a.x + a.w + gap <= b.x) || (b.x + b.w + gap <= a.x);
 }
+
+function rectsOverlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
 function rectsNear(a, b, gap = ELEMENT_BUFFER) {
   const expanded = { x: b.x - gap, y: b.y - gap, w: b.w + gap * 2, h: b.h + gap * 2 };
   return rectsOverlap(a, expanded);
