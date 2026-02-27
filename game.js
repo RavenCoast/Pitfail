@@ -844,6 +844,8 @@ function updateMovingLogs(screen) {
 function updateAnimals(screen) {
   for (let i = (screen.animals || []).length - 1; i >= 0; i--) {
     const animal = screen.animals[i];
+    if (animal.startX === undefined) animal.startX = animal.x;
+    if (animal.startDir === undefined) animal.startDir = animal.dir || 1;
     animal.phase = (animal.phase || 0) + 0.14;
     if (animal.hp === undefined) animal.hp = animal.type === "panther" ? 2 : 1;
 
@@ -898,6 +900,16 @@ function applyWhipHit(screen) {
     }
   }
   return false;
+}
+
+function resetAnimalsForScreen(screen) {
+  for (const animal of screen.animals || []) {
+    if (animal.startX === undefined) animal.startX = animal.x;
+    if (animal.startDir === undefined) animal.startDir = animal.dir || 1;
+    animal.x = animal.startX;
+    animal.dir = animal.startDir;
+    animal.charging = false;
+  }
 }
 
 function resolvePlatforms(screen) {
@@ -1093,6 +1105,8 @@ function update() {
 
   if (gameState.respawnPending) {
     if (performance.now() >= gameState.respawnAt) {
+      const screenNow = currentScreen();
+      resetAnimalsForScreen(screenNow);
       resetPlayerOnScreen(gameState.lastEntrySide);
       gameState.respawnPending = false;
       gameState.deathMessageUntil = Math.max(gameState.deathMessageUntil, performance.now() + 3000);
@@ -1209,9 +1223,11 @@ function drawObstacles(screen) {
       }
       case "gap":
       case "rockPit": {
-        const depth = (obs.type === "rockPit" && gameState.underground)
+        const depth = (obs.type === "gap" && !gameState.underground)
           ? (WORLD.height - obs.y)
-          : obs.h;
+          : (obs.type === "rockPit" && gameState.underground)
+            ? (WORLD.height - obs.y)
+            : obs.h;
         const topW = Math.max(18, Math.floor(obs.w * 0.72));
         const topX = obs.x + Math.floor((obs.w - topW) / 2);
         ctx.fillStyle = "#111";
