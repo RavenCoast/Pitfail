@@ -83,6 +83,7 @@ class FileAudioManager {
 const fileAudio = new FileAudioManager();
 
 const WORLD = { width: canvas.width, height: canvas.height, gravity: 0.62 };
+const ELEMENT_BUFFER = 28;
 const keys = { ArrowLeft: false, ArrowRight: false, ArrowUp: false, ArrowDown: false, Space: false, KeyX: false };
 
 const gameState = {
@@ -175,12 +176,16 @@ function overlapsWater(rect, water) {
   return rect.x < water.x + water.w && rect.x + rect.w > water.x && rect.y < water.y + water.h && rect.y + rect.h > water.y;
 }
 
-function pickSafeX(rand, w, water = null, min = 40, max = WORLD.width - 40) {
-  for (let i = 0; i < 20; i++) {
+function pickSafeX(rand, w, water = null, min = 40, max = WORLD.width - 40, gap = ELEMENT_BUFFER) {
+  for (let i = 0; i < 30; i++) {
     const x = Math.floor(min + rand() * (Math.max(min + 1, max - w - min)));
-    if (!water || (x + w < water.x - 10) || (x > water.x + water.w + 10)) return x;
+    if (!water || (x + w <= water.x - gap) || (x >= water.x + water.w + gap)) return x;
   }
   return water && water.x > WORLD.width / 2 ? 60 : WORLD.width - w - 60;
+}
+
+function rectGapSeparated(a, b, gap = ELEMENT_BUFFER) {
+  return (a.x + a.w + gap <= b.x) || (b.x + b.w + gap <= a.x);
 }
 
 function generateScreens(seed = 1337, count = 8) {
@@ -193,6 +198,7 @@ function generateScreens(seed = 1337, count = 8) {
     const hasAnimal = rand() > 0.2;
     const hasTreasure = rand() > 0.33;
     const forceRiver = rand() > 0.25;
+    const waterHasLogs = forceRiver ? rand() > 0.32 : false;
 
     const obstacles = [];
     const hazardChoices = ["quicksand", "gap", "fallenTree"];
@@ -201,19 +207,29 @@ function generateScreens(seed = 1337, count = 8) {
       const riverX = Math.floor(120 + rand() * (WORLD.width - riverW - 240));
       obstacles.push({ type: "river", x: riverX, y: 420, w: riverW, h: 84 });
     }
+    const water = obstacles.find((o) => o.type === "river") || null;
+
     const extraCount = 1 + Math.floor(rand() * 2);
     for (let k = 0; k < extraCount; k++) {
       const type = pick(rand, hazardChoices);
       const w = type === "fallenTree" ? 150 : 72 + Math.floor(rand() * 40);
       const h = type === "fallenTree" ? 35 : type === "gap" ? 70 : 20;
       const y = type === "fallenTree" ? 430 : 450;
-      const x = 160 + Math.floor(rand() * 620);
-      obstacles.push({ type, x, y, w, h });
+      const x = pickSafeX(rand, w, water, 80, WORLD.width - 80, ELEMENT_BUFFER);
+      const hazard = { type, x, y, w, h };
+      const tooClose = obstacles.some((o) => o.type !== "river" && !rectGapSeparated(hazard, o, ELEMENT_BUFFER));
+      if ((!water || !overlapsWater(hazard, water)) && !tooClose) obstacles.push(hazard);
     }
 
-    const water = obstacles.find((o) => o.type === "river") || null;
+    // Final guardrail: no non-log element may overlap water bounds.
+    if (water) {
+      for (let i = obstacles.length - 1; i >= 0; i--) {
+        const o = obstacles[i];
+        if (o.type !== "river" && overlapsWater(o, water)) obstacles.splice(i, 1);
+      }
+    }
 
-    const movingLogs = water ? [0,1,2].map((idx) => {
+    const movingLogs = (water && waterHasLogs) ? [0,1,2].map((idx) => {
       const w = 118 + Math.floor(rand() * 26);
       const laneY = [430, 444, 428][idx];
       const minX = water.x + 8;
@@ -223,7 +239,11 @@ function generateScreens(seed = 1337, count = 8) {
       return { x: startX, y: laneY, w, h: 20, speed: idx % 2 ? -speedBase : speedBase, minX, maxX };
     }) : undefined;
 
-    const platforms = makePlatforms(rand, 3 + Math.floor(rand() * 2), [338, 300, 338, 376, 312], water);
+    let platforms = makePlatforms(rand, 3 + Math.floor(rand() * 2), [338, 300, 338, 376, 312], water);
+    // If water has logs, remove any platform above/over water to keep water-log hazards primary.
+    if (water && movingLogs) platforms = platforms.filter((pl) => !overlapsWater(pl, water));
+    // Water-only encounter (no logs) can use platforms over water.
+
 
     const animals = [];
     if (hasAnimal) {
@@ -234,14 +254,14 @@ function generateScreens(seed = 1337, count = 8) {
       ]);
       const minX = water ? (water.x + water.w + 30 < WORLD.width - 120 ? water.x + water.w + 24 : 60) : 80;
       const maxX = water ? (water.x - 30 > 180 ? water.x - 20 : WORLD.width - 70) : 880;
-      const x = pickSafeX(rand, template.w, water, minX, maxX);
+      const x = pickSafeX(rand, template.w, water, minX, maxX, ELEMENT_BUFFER);
       animals.push({ x, minX: Math.max(20, minX), maxX: Math.min(WORLD.width - 20, maxX), dir: 1, phase: 0, ...template });
     }
 
     const treasure = hasTreasure
       ? (() => {
           const tw = 28; const th = 24;
-          const tx = pickSafeX(rand, tw, water, 70, WORLD.width - 70);
+          const tx = pickSafeX(rand, tw, water, 70, WORLD.width - 70, ELEMENT_BUFFER);
           return { type: rand() > 0.5 ? "gold" : "silver", x: tx, y: 430, w: tw, h: th, value: rand() > 0.5 ? 100 : 50, collected: false };
         })()
       : null;
@@ -266,7 +286,7 @@ function generateScreens(seed = 1337, count = 8) {
       movingLogs,
       animals,
       ladder: ladderSafe,
-      treasure: treasure && water && overlapsWater(treasure, water) ? { ...treasure, x: pickSafeX(rand, treasure.w, water, 60, WORLD.width - 60) } : treasure,
+      treasure: treasure && water && overlapsWater(treasure, water) ? { ...treasure, x: pickSafeX(rand, treasure.w, water, 60, WORLD.width - 60, ELEMENT_BUFFER) } : treasure,
       underground: {
         name: generateName(rand, "cave", caveObs.map((o) => o.type)),
         spawn: { x: ladderX < WORLD.width / 2 ? 80 : 820, y: 420 },
@@ -848,9 +868,9 @@ function resolvePlatforms(screen) {
     }
 
     for (const seg of segments) solids.push({ x: seg.start, y: screen.groundY, w: seg.end - seg.start, h: WORLD.height - screen.groundY });
-    for (const platform of screen.platforms || []) solids.push({ ...platform, oneWay: true });
+    for (const platform of screen.platforms || []) solids.push({ x: platform.x, y: platform.y + (platform.wobbleY || 0), w: platform.w, h: platform.h, oneWay: true, source: platform, sourceType: "platform" });
     for (const log of screen.movingLogs || []) {
-      if (log.isSurfaced !== false) solids.push({ ...log, oneWay: true, speed: log.speed });
+      if (log.isSurfaced !== false) solids.push({ x: log.x, y: log.y, w: log.w, h: log.h, oneWay: true, speed: log.speed, source: log, sourceType: "log" });
     }
   }
 
@@ -867,6 +887,7 @@ function resolvePlatforms(screen) {
         p.vy = 0;
         landed = true;
         if (solid.speed) p.x += solid.speed;
+        if (solid.sourceType === "platform" && solid.source) solid.source.wobbleV = -1.4;
       } else if (!solid.oneWay && prevTop >= solid.y + solid.h - 6 && p.vy < 0) {
         p.y = solid.y + solid.h;
         p.vy = 0;
@@ -933,6 +954,22 @@ function collectTreasure(screen) {
   }
 }
 
+function updatePlatformWobbles(screen) {
+  for (const platform of screen.platforms || []) {
+    platform.wobbleY = platform.wobbleY || 0;
+    platform.wobbleV = platform.wobbleV || 0;
+    if (Math.abs(platform.wobbleY) > 0.01 || Math.abs(platform.wobbleV) > 0.01) {
+      platform.wobbleV += 0.22;
+      platform.wobbleY += platform.wobbleV;
+      if (platform.wobbleY > 0) {
+        platform.wobbleY = 0;
+        platform.wobbleV *= -0.45;
+      }
+      platform.wobbleV *= 0.92;
+    }
+  }
+}
+
 function updateTreasureBursts() {
   for (let i = gameState.treasureBursts.length - 1; i >= 0; i--) {
     const burst = gameState.treasureBursts[i];
@@ -972,6 +1009,7 @@ function update() {
   }
 
   updateMovingLogs(screen);
+  updatePlatformWobbles(screen);
   updateAnimals(screen);
 
   p.vx = 0;
@@ -1094,7 +1132,7 @@ function drawObstacles(screen) {
     }
   }
 
-  for (const platform of screen.platforms || []) drawPixelRect(platform.x, platform.y, platform.w, platform.h, "#70532d");
+  for (const platform of screen.platforms || []) drawPixelRect(platform.x, platform.y + (platform.wobbleY || 0), platform.w, platform.h, "#70532d");
   for (const log of screen.movingLogs || []) {
     const tone = log.isSurfaced === false ? "#6d4b27" : "#986738";
     drawPixelRect(log.x, log.y, log.w, log.h, tone);
