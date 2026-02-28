@@ -133,6 +133,10 @@ const gameState = {
     whips: 0,
     screenChanges: 0,
     reportShown: false,
+    recoveryUntil: 0,
+    lastJumpAt: 0,
+    deathByCause: {},
+    lastWhipAt: 0,
   },
 };
 
@@ -157,6 +161,10 @@ function resetAutoStats() {
   gameState.auto.whips = 0;
   gameState.auto.screenChanges = 0;
   gameState.auto.reportShown = false;
+  gameState.auto.recoveryUntil = 0;
+  gameState.auto.lastJumpAt = 0;
+  gameState.auto.deathByCause = {};
+  gameState.auto.lastWhipAt = 0;
 }
 
 function clearReportUI() {
@@ -170,6 +178,10 @@ function formatAutoReport() {
   const elapsedSec = (elapsedMs / 1000).toFixed(1);
   const scoreDelta = gameState.score - gameState.auto.startScore;
   const livesLost = Math.max(0, gameState.auto.startingLives - gameState.lives);
+  const deathByCause = Object.entries(gameState.auto.deathByCause)
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `${k}:${v}`)
+    .join(", ") || "none";
   return [
     "Pitfail Auto-Playtest Report",
     `Build: ${BUILD_INFO.number} (${BUILD_INFO.timestampUtc})`,
@@ -180,6 +192,7 @@ function formatAutoReport() {
     `Lives lost: ${livesLost}`,
     `Jumps: ${gameState.auto.jumps}`,
     `Whips: ${gameState.auto.whips}`,
+    `Deaths by cause: ${deathByCause}`,
     `Final position: screen=${gameState.screenIndex} x=${Math.round(gameState.player.x)} y=${Math.round(gameState.player.y)}`,
     "Notes: Auto mode favors forward movement, hazard jumps, and opportunistic whip usage.",
   ].join("\n");
@@ -194,32 +207,152 @@ function showAutoReport() {
   splash.classList.add("active");
 }
 
+function autoTapJump() {
+  if (!keys.Space) gameState.auto.jumps += 1;
+  keys.Space = true;
+  gameState.auto.lastJumpAt = performance.now();
+}
+
+function nearestLethalAhead(player, screen) {
+  const px = player.x + player.w;
+  let best = null;
+  for (const obs of screen.obstacles || []) {
+    if (!["gap", "quicksand", "river", "spikes", "stalagmite", "rockPit"].includes(obs.type)) continue;
+    const start = obs.x;
+    const end = obs.x + obs.w;
+    const ahead = start - px;
+    if (ahead < -18) continue;
+    if (!best || ahead < best.ahead) best = { obs, start, end, ahead };
+  }
+  return best;
+}
+
+function standingOnLog(screen, player) {
+  for (const log of screen.movingLogs || []) {
+    if (log.isSurfaced === false) continue;
+    const overlap = Math.min(player.x + player.w, log.x + log.w) - Math.max(player.x, log.x);
+    const nearTop = Math.abs((player.y + player.h) - log.y) < 12;
+    if (overlap > player.w * 0.35 && nearTop) return log;
+  }
+  return null;
+}
+
+function suitableEntryLog(river, logs, player) {
+  const px = player.x + player.w;
+  return (logs || []).find((log) => {
+    if (log.isSurfaced === false) return false;
+    const logCenter = log.x + log.w / 2;
+    const dx = logCenter - px;
+    if (dx < 16 || dx > 110) return false;
+    if (logCenter < river.x + 12 || logCenter > river.x + river.w - 12) return false;
+    return log.speed >= 0;
+  }) || null;
+}
+
+function planRiverCrossing(screen, river, player) {
+  const px = player.x + player.w;
+  const onLog = standingOnLog(screen, player);
+  const nearBankGap = river.x - px;
+  const farBankGap = river.x + river.w - px;
+
+  // Approaching river: wait at bank for a viable surfaced log, then jump to it.
+  if (!onLog && nearBankGap >= -6) {
+    const entry = suitableEntryLog(river, screen.movingLogs, player);
+    if (nearBankGap < 28 && !entry) {
+      keys.ArrowRight = false;
+      keys.ArrowLeft = false;
+      keys.Space = false;
+      return;
+    }
+    if (entry && nearBankGap < 64 && player.onGround) {
+      autoTapJump();
+      return;
+    }
+    return;
+  }
+
+  if (!onLog) return;
+
+  // On a log: only jump when a safe next target (another surfaced log or far bank) is reachable.
+  const nextLog = (screen.movingLogs || []).filter((log) => log !== onLog && log.isSurfaced !== false)
+    .sort((a, b) => (a.x - onLog.x) - (b.x - onLog.x))
+    .find((log) => {
+      const dx = log.x + log.w * 0.5 - (player.x + player.w * 0.5);
+      const dy = Math.abs(log.y - player.y);
+      return dx > 18 && dx < 104 && dy < 56;
+    });
+
+  const canLeapToBank = farBankGap > 18 && farBankGap < 92;
+  if (player.onGround && (nextLog || canLeapToBank)) {
+    autoTapJump();
+    return;
+  }
+
+  // Stay centered on the moving log to avoid slipping off between jumps.
+  const playerCenter = player.x + player.w / 2;
+  const logCenter = onLog.x + onLog.w / 2;
+  if (playerCenter < logCenter - 6) {
+    keys.ArrowLeft = false;
+    keys.ArrowRight = true;
+  } else if (playerCenter > logCenter + 6) {
+    keys.ArrowRight = false;
+    keys.ArrowLeft = true;
+  } else {
+    keys.ArrowLeft = false;
+    keys.ArrowRight = false;
+  }
+}
+
 function applyAutoPilot() {
   if (!gameState.auto.active || gameState.respawnPending) return;
+
   keys.ArrowLeft = false;
   keys.ArrowRight = true;
   keys.ArrowUp = false;
   keys.ArrowDown = false;
+  keys.Space = false;
+  keys.KeyX = false;
 
+  const now = performance.now();
   const player = gameState.player;
   const screen = currentScreen();
-  const closeHazard = (screen.obstacles || []).find((o) => {
-    if (!["gap", "quicksand", "river", "spikes", "stalagmite"].includes(o.type)) return false;
-    const ahead = o.x - (player.x + player.w);
-    return ahead > -24 && ahead < 54;
-  });
-  const nearbyAnimal = (screen.animals || []).some((a) => {
-    const dx = a.x - player.x;
-    const dy = Math.abs(a.y - player.y);
-    return dx > -30 && dx < 80 && dy < 42;
-  });
 
-  const shouldJump = Boolean(closeHazard && player.onGround);
-  const shouldWhip = Boolean(nearbyAnimal);
-  if (shouldJump && !keys.Space) gameState.auto.jumps += 1;
-  if (shouldWhip && !keys.KeyX) gameState.auto.whips += 1;
-  keys.Space = shouldJump;
-  keys.KeyX = shouldWhip;
+  if (now < gameState.auto.recoveryUntil) {
+    // Brief stabilization window after deaths to prevent immediate repeat-failure loops.
+    const river = (screen.obstacles || []).find((o) => o.type === "river");
+    if (river && player.x + player.w > river.x && player.x < river.x + river.w) {
+      keys.ArrowLeft = true;
+      keys.ArrowRight = false;
+    }
+  } else {
+    const river = (screen.obstacles || []).find((o) => o.type === "river");
+    if (river && (screen.movingLogs || []).length > 0) planRiverCrossing(screen, river, player);
+
+    const hazard = nearestLethalAhead(player, screen);
+    if (hazard) {
+      const launchMin = hazard.obs.type === "spikes" || hazard.obs.type === "stalagmite" ? 8 : 16;
+      const launchMax = hazard.obs.type === "river" ? 86 : 74;
+      if (player.onGround && hazard.ahead >= launchMin && hazard.ahead <= launchMax && now - gameState.auto.lastJumpAt > 260) {
+        autoTapJump();
+      }
+      if (player.onGround && hazard.ahead < 8) {
+        keys.ArrowRight = false;
+        keys.ArrowLeft = true;
+      }
+    }
+  }
+
+  const shouldWhip = (screen.animals || []).some((a) => {
+    const projectedX = a.x + (a.speed || 0) * (a.dir || 1) * 12;
+    const dx = projectedX - player.x;
+    const dy = Math.abs(a.y - player.y);
+    return dx > -12 && dx < 118 && dy < 54;
+  });
+  if (shouldWhip && now - gameState.auto.lastWhipAt > 520) {
+    gameState.auto.whips += 1;
+    gameState.auto.lastWhipAt = now;
+    keys.KeyX = true;
+  }
 
   if (performance.now() >= gameState.auto.deadlineAt) {
     gameState.auto.active = false;
@@ -227,6 +360,7 @@ function applyAutoPilot() {
     showAutoReport();
   }
 }
+
 
 function mulberry32(seed) {
   let t = seed >>> 0;
@@ -738,11 +872,16 @@ function resetPlayerOnScreen(entryDirection = 0) {
 
 function loseLife(reason) {
   if (gameState.respawnPending) return;
+  const cause = (reason || "unknown").replace(/^a\s+|^an\s+|^the\s+/i, "");
   gameState.lives = Math.max(0, gameState.lives - 1);
   gameState.deathMessage = `You were defeated by ${reason}.`;
   gameState.deathMessageUntil = performance.now() + 5000;
   gameState.player.justDied = true;
-  if (gameState.auto.active) gameState.auto.deaths += 1;
+  if (gameState.auto.active) {
+    gameState.auto.deaths += 1;
+    gameState.auto.recoveryUntil = performance.now() + 900;
+    gameState.auto.deathByCause[cause] = (gameState.auto.deathByCause[cause] || 0) + 1;
+  }
   gameState.respawnPending = true;
   gameState.respawnAt = performance.now() + 2000;
   synth.playDeath();
