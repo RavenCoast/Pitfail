@@ -303,6 +303,41 @@ function planRiverCrossing(screen, river, player) {
   }
 }
 
+
+function pitLikeObstacle(obs) {
+  return ["gap", "quicksand", "river", "rockPit"].includes(obs.type);
+}
+
+function predictedJumpLandingX(player, dir = 1) {
+  const centerX = player.x + player.w / 2;
+  const jumpTravel = 92;
+  return centerX + jumpTravel * (dir >= 0 ? 1 : -1);
+}
+
+function landingZoneHasPit(screen, player, dir = 1) {
+  const landingX = predictedJumpLandingX(player, dir);
+  const spread = 24;
+  const zoneMin = landingX - spread;
+  const zoneMax = landingX + spread;
+  for (const obs of screen.obstacles || []) {
+    if (!pitLikeObstacle(obs)) continue;
+    const obsMin = obs.x;
+    const obsMax = obs.x + obs.w;
+    if (zoneMax >= obsMin && zoneMin <= obsMax) return true;
+  }
+  return false;
+}
+
+function canClearHazardWithJump(player, hazard, dir = 1) {
+  const landingX = predictedJumpLandingX(player, dir);
+  if (dir >= 0) return landingX >= hazard.end + 10;
+  return landingX <= hazard.start - 10;
+}
+
+function isElevatedAboveGround(player, screen) {
+  return player.y + player.h < screen.groundY - 18;
+}
+
 function applyAutoPilot() {
   if (!gameState.auto.active || gameState.respawnPending) return;
 
@@ -330,12 +365,24 @@ function applyAutoPilot() {
 
     const hazard = nearestLethalAhead(player, screen);
     if (hazard) {
+      const elevated = isElevatedAboveGround(player, screen);
       const launchMin = hazard.obs.type === "spikes" || hazard.obs.type === "stalagmite" ? 8 : 16;
-      const launchMax = hazard.obs.type === "river" ? 86 : 74;
-      if (player.onGround && hazard.ahead >= launchMin && hazard.ahead <= launchMax && now - gameState.auto.lastJumpAt > 260) {
-        autoTapJump();
-      }
-      if (player.onGround && hazard.ahead < 8) {
+      const launchMax = hazard.obs.type === "river" ? 92 : 80;
+      const dir = keys.ArrowLeft ? -1 : 1;
+      const landingPit = landingZoneHasPit(screen, player, dir);
+      const canClear = canClearHazardWithJump(player, hazard, dir);
+
+      const shouldJumpForHazard = player.onGround
+        && hazard.ahead >= launchMin
+        && hazard.ahead <= launchMax
+        && now - gameState.auto.lastJumpAt > 260
+        && (!elevated || hazard.obs.type === "river")
+        && (!pitLikeObstacle(hazard.obs) || (canClear && !landingPit));
+
+      if (shouldJumpForHazard) autoTapJump();
+
+      // If my landing zone is unsafe (pit below from platform jump), I brake/backstep and retry.
+      if (player.onGround && (hazard.ahead < 10 || (elevated && landingPit))) {
         keys.ArrowRight = false;
         keys.ArrowLeft = true;
       }
